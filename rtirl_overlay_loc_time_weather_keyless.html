@@ -1,0 +1,193 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RTIRL Overlay (📍 Location • 🕒 Time • Weather, no API key)</title>
+  <style>
+    :root {
+      --bg: rgba(0,0,0,0.85);
+      --fg: #ffffff;
+      --border: rgba(255,255,255,0.2);
+      --radius: 12px;
+      --padY: 8px;
+      --padX: 14px;
+      --gap: 10px;
+      --font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    html, body { margin: 0; padding: 0; background: transparent; }
+    body {
+      display: inline-block;
+      color: var(--fg);
+      font-family: var(--font);
+      font-size: 18px;
+      line-height: 1.2;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--gap);
+      padding: var(--padY) var(--padX);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      box-sizing: border-box;
+      white-space: nowrap;
+    }
+    .segment { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+    .muted { opacity: 0.9; font-weight: 600; }
+    .sep { opacity: 0.45; }
+  </style>
+</head>
+<body>
+  <div id="overlay" class="pill">
+    <span id="locSeg" class="segment"><span>📍</span><span id="loc">Locating…</span></span>
+    <span class="sep">•</span>
+    <span id="timeSeg" class="segment"><span>🕒</span><span id="time">--:-- --</span></span>
+    <span class="sep">•</span>
+    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji">☁️</span><span id="weather" class="muted">--</span></span>
+  </div>
+
+  <script>
+    // ======== CONFIG ========
+    const PULL_KEY = "oxicqnnw52j6pjgc";  // your RTIRL pull key
+    const TEMP_UNITS = "f";               // "f" for °F, "c" for °C
+    // ========================
+
+    const elLoc = document.getElementById("loc");
+    const elTime = document.getElementById("time");
+    const elWxSeg = document.getElementById("wxSeg");
+    const elWeather = document.getElementById("weather");
+    const elWxEmoji = document.getElementById("wxEmoji");
+
+    function to12h(date) {
+      let h = date.getHours();
+      const m = date.getMinutes();
+      const ampm = h >= 12 ? "pm" : "am";
+      h = h % 12; if (h === 0) h = 12;
+      return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
+    }
+    function tickClock(){ elTime.textContent = to12h(new Date()); }
+    tickClock(); setInterval(tickClock, 1000);
+
+    let lastLat=null,lastLon=null,lastPlace=null,lastGeoAt=0;
+    async function fetchRTIRL() {
+      try {
+        const res = await fetch(`https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}`, { cache: "no-store" });
+        if (!res.ok) throw new Error("RTIRL pull failed");
+        const data = await res.json();
+        const coords = extractLatLon(data);
+        if (!coords) { elLoc.textContent = "Unknown"; elWxSeg.style.display="none"; return; }
+        const { lat, lon } = coords;
+
+        // temp coords while geocoding
+        if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
+          elLoc.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+          reverseGeocode(lat, lon).then(name => { if (name) { lastPlace = name; elLoc.textContent = name; }}).catch(()=>{});
+          lastLat=lat; lastLon=lon;
+        } else {
+          elLoc.textContent = lastPlace;
+        }
+
+        // keyless weather via Open-Meteo
+        updateWeather(lat, lon);
+      } catch (e) {
+        console.error(e);
+        elLoc.textContent = "RTIRL offline";
+        elWxSeg.style.display="none";
+      }
+    }
+
+    function approxEqual(a,b,eps=1e-4){ if(a==null||b==null) return false; return Math.abs(a-b)<=eps; }
+    function extractLatLon(d){
+      if (d?.location && typeof d.location.latitude==="number" && typeof d.location.longitude==="number") return {lat:d.location.latitude, lon:d.location.longitude};
+      if (typeof d.lat==="number" && typeof d.lon==="number") return {lat:d.lat, lon:d.lon};
+      if (typeof d.latitude==="number" && typeof d.longitude==="number") return {lat:d.latitude, lon:d.longitude};
+      if (d?.coords && typeof d.coords.lat==="number" && typeof d.coords.lon==="number") return {lat:d.coords.lat, lon:d.coords.lon};
+      return null;
+    }
+
+    async function reverseGeocode(lat, lon) {
+      const url = new URL("https://nominatim.openstreetmap.org/reverse");
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("lat", String(lat));
+      url.searchParams.set("lon", String(lon));
+      url.searchParams.set("accept-language", "en");
+      url.searchParams.set("zoom", "15");
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      if (!res.ok) throw new Error("Nominatim HTTP " + res.status);
+      const j = await res.json();
+      const addr = j.address || {};
+      const parts = [
+        addr.neighbourhood || addr.neighborhood || "",
+        addr.suburb || "",
+        addr.city || addr.town || addr.village || "",
+      ].filter(Boolean);
+      const nice = parts.length ? parts.join(", ") : (j.display_name || "").split(",").slice(0,3).join(", ");
+      return nice || null;
+    }
+
+    async function updateWeather(lat, lon) {
+      try {
+        // Open-Meteo: no API key required
+        const params = new URLSearchParams({
+          latitude: lat, longitude: lon,
+          current_weather: "true",
+          temperature_unit: TEMP_UNITS==="f" ? "fahrenheit" : "celsius",
+          windspeed_unit: "mph",
+          timezone: "auto"
+        });
+        const resp = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, { cache: "no-store" });
+        if (!resp.ok) throw new Error("OM HTTP " + resp.status);
+        const w = await resp.json();
+        const cw = w.current_weather;
+        if (!cw) { elWxSeg.style.display="none"; return; }
+        const temp = Math.round(cw.temperature);
+        const code = Number(cw.weathercode);
+        const emoji = weatherEmoji(code);
+        const unit = TEMP_UNITS==="f" ? "°F" : "°C";
+        const text = codeToText(code);
+        elWxEmoji.textContent = emoji;
+        elWeather.textContent = `${temp}${unit} ${text}`;
+        elWxSeg.style.display = "inline-flex";
+      } catch (e) {
+        console.warn("weather fail", e);
+        elWxSeg.style.display="none";
+      }
+    }
+
+    // Open-Meteo weathercode mapping
+    function weatherEmoji(code){
+      // codes: https://open-meteo.com/en/docs
+      if ([0].includes(code)) return "☀️"; // clear
+      if ([1,2,3].includes(code)) return "🌤️"; // mainly clear/partly cloudy/overcast
+      if ([45,48].includes(code)) return "🌫️"; // fog
+      if ([51,53,55,56,57].includes(code)) return "🌦️"; // drizzle
+      if ([61,63,65,66,67,80,81,82].includes(code)) return "🌧️"; // rain
+      if ([71,73,75,77,85,86].includes(code)) return "❄️"; // snow
+      if ([95,96,99].includes(code)) return "⛈️"; // thunderstorm
+      return "☁️";
+    }
+    function codeToText(code){
+      const map = {
+        0:"Clear",1:"Mainly clear",2:"Partly cloudy",3:"Overcast",
+        45:"Fog",48:"Depositing rime fog",
+        51:"Light drizzle",53:"Drizzle",55:"Heavy drizzle",
+        56:"Freezing drizzle",57:"Heavy freezing drizzle",
+        61:"Light rain",63:"Rain",65:"Heavy rain",
+        66:"Freezing rain",67:"Heavy freezing rain",
+        71:"Light snow",73:"Snow",75:"Heavy snow",
+        77:"Snow grains",
+        80:"Rain showers",81:"Heavy rain showers",82:"Violent rain showers",
+        85:"Snow showers",86:"Heavy snow showers",
+        95:"Thunderstorm",96:"Thunderstorm w/ hail",99:"Thunderstorm w/ heavy hail"
+      };
+      return map[code] || "Clouds";
+    }
+
+    fetchRTIRL();
+    setInterval(fetchRTIRL, 5000);
+  </script>
+</body>
+</html>
