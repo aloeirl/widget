@@ -4,9 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stream Overlay</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=block" rel="stylesheet">
   <style>
     :root {
       --bg: rgba(0,0,0,0.6);   /* translucent black */
@@ -16,7 +13,7 @@
       --padY: 4px;             /* tighter vertical padding */
       --padX: 10px;            /* tighter horizontal padding */
       --gap: 8px;
-      --font: 'Inter', Arial, Helvetica, sans-serif;
+      --font: Arial, Helvetica, sans-serif; /* use Arial */
     }
 
     /* Force font everywhere */
@@ -166,7 +163,7 @@
         const code = Number(cw.weathercode);
         const emoji = weatherEmoji(code);
         const unit = TEMP_UNITS==="f" ? "°F" : "°C";
-        const text = codeToText(code);  // <— friendlier labels here
+        const text = codeToText(code);
         elWxEmoji.textContent = emoji;
         elWeather.textContent = `${temp}${unit} ${text}`;
         elWxSeg.style.display = "inline-flex";
@@ -187,7 +184,7 @@
       return "☁️";
     }
 
-    // ✅ Friendlier, fully-capitalized descriptions
+    // Friendlier, fully-capitalized descriptions
     function codeToText(code){
       const map = {
         0:  "Sunny",
