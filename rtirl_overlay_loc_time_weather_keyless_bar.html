@@ -4,7 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stream Overlay</title>
+
   <style>
+    /* Self-hosted Arial */
+    @font-face {
+      font-family: "OverlayArial";
+      src: url("./fonts/ARIAL.woff2") format("woff2");
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: block; /* prevents Samsung fallback flash */
+    }
+
     :root {
       --bg: rgba(0,0,0,0.6);   /* translucent black */
       --fg: #ffffff;
@@ -13,7 +23,7 @@
       --padY: 4px;             /* tighter vertical padding */
       --padX: 10px;            /* tighter horizontal padding */
       --gap: 8px;
-      --font: Arial, Helvetica, sans-serif; /* use Arial */
+      --font: "OverlayArial", Arial, Helvetica, sans-serif; /* use self-hosted Arial first */
     }
 
     /* Force font everywhere */
@@ -28,7 +38,7 @@
     body {
       display: inline-block;
       color: var(--fg);
-      font-size: 14px;         /* your current size */
+      font-size: 14px;  /* your current size */
       line-height: 1.2;
     }
     .pill {
@@ -44,11 +54,7 @@
     }
     .segment { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
     .muted { opacity: 0.9; font-weight: 600; }
-    .sep {
-      color: var(--border);
-      font-weight: 400;
-      font-size: 0.85em;
-    }
+    .sep { color: var(--border); font-weight: 400; font-size: 0.85em; }
   </style>
 </head>
 <body>
@@ -78,7 +84,7 @@
       return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
     }
     function tickClock(){ elTime.textContent = to12h(new Date()); }
-    tickClock(); setInterval(tickClock, 1000);
+    setInterval(tickClock, 1000); tickClock();
 
     let lastLat=null,lastLon=null,lastPlace=null;
     async function fetchRTIRL() {
@@ -94,13 +100,9 @@
         }
         const { lat, lon } = coords;
 
-        // Only reverse geocode if coordinates changed
         if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
           reverseGeocode(lat, lon).then(name => {
-            if (name) {
-              lastPlace = name;
-              elLoc.textContent = name;
-            }
+            if (name) { lastPlace = name; elLoc.textContent = name; }
           }).catch(()=>{});
           lastLat = lat;
           lastLon = lon;
@@ -155,7 +157,7 @@
           timezone: "auto"
         });
         const resp = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, { cache: "no-store" });
-        if (!resp.ok) throw new Error("OM HTTP " + res.status);
+        if (!resp.ok) throw new Error("OM HTTP " + resp.status);
         const w = await resp.json();
         const cw = w.current_weather;
         if (!cw) { elWxSeg.style.display="none"; return; }
@@ -184,37 +186,19 @@
       return "☁️";
     }
 
-    // Friendlier, fully-capitalized descriptions
     function codeToText(code){
       const map = {
-        0:  "Sunny",
-        1:  "Mostly Sunny",
-        2:  "Partly Cloudy",
-        3:  "Cloudy",
-        45: "Foggy",
-        48: "Icy Fog",
-        51: "Light Drizzle",
-        53: "Drizzle",
-        55: "Heavy Drizzle",
-        56: "Freezing Drizzle",
-        57: "Heavy Freezing Drizzle",
-        61: "Light Rain",
-        63: "Rain",
-        65: "Heavy Rain",
-        66: "Freezing Rain",
-        67: "Heavy Freezing Rain",
-        71: "Light Snow",
-        73: "Snow",
-        75: "Heavy Snow",
-        77: "Snow Grains",
-        80: "Showers",
-        81: "Heavy Showers",
-        82: "Violent Showers",
-        85: "Snow Showers",
-        86: "Heavy Snow Showers",
-        95: "Thunderstorm",
-        96: "Thunderstorm With Hail",
-        99: "Severe Thunderstorm"
+        0:"Sunny",1:"Mostly Sunny",2:"Partly Cloudy",3:"Cloudy",
+        45:"Foggy",48:"Icy Fog",
+        51:"Light Drizzle",53:"Drizzle",55:"Heavy Drizzle",
+        56:"Freezing Drizzle",57:"Heavy Freezing Drizzle",
+        61:"Light Rain",63:"Rain",65:"Heavy Rain",
+        66:"Freezing Rain",67:"Heavy Freezing Rain",
+        71:"Light Snow",73:"Snow",75:"Heavy Snow",
+        77:"Snow Grains",
+        80:"Showers",81:"Heavy Showers",82:"Violent Showers",
+        85:"Snow Showers",86:"Heavy Snow Showers",
+        95:"Thunderstorm",96:"Thunderstorm With Hail",99:"Severe Thunderstorm"
       };
       return map[code] || "Clouds";
     }
