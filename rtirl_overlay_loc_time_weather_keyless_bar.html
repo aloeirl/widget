@@ -11,7 +11,7 @@
     :root {
       --bg: rgba(0,0,0,0.6);   /* lighter translucent background */
       --fg: #ffffff;
-      --border: rgba(255,255,255,0.8);
+      --border: rgba(255,255,255,0.5);
       --radius: 8px;          /* rounder corners */
       --padY: 4px;             /* tighter vertical padding */
       --padX: 10px;            /* tighter horizontal padding */
@@ -40,8 +40,7 @@
     .segment { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
     .muted { opacity: 0.9; font-weight: 600; }
     .sep {
-      color: var(--border);
-      font-weight: 600;
+      .sep { opacity: 0.5; }
     }
   </style>
 </head>
