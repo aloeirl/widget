@@ -15,6 +15,15 @@
       font-display: block; /* prevents Samsung fallback flash */
     }
 
+    /* Self-hosted Arial Medium */
+    @font-face {
+      font-family: "OverlayArial";
+      src: url("./fonts/ArialMdm.woff2") format("woff2");
+      font-weight: 500;
+      font-style: normal;
+      font-display: block;
+    }
+
     :root {
       --bg: rgba(0,0,0,0.6);   /* translucent black */
       --fg: #ffffff;
@@ -52,8 +61,8 @@
       box-sizing: border-box;
       white-space: nowrap;
     }
-    .segment { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
-    .muted { opacity: 0.9; font-weight: 600; }
+    .segment { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+    .muted { opacity: 0.9; font-weight: 500; }
     .sep { color: var(--border); font-weight: 400; font-size: 0.85em; }
   </style>
 </head>
