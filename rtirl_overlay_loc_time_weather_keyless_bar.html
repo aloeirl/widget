@@ -1,19 +1,18 @@
-
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RTIRL Overlay (📍 Location | 🕒 Time | Weather, no API key)</title>
+  <title>Stream Overlay</title>
   <style>
     :root {
-      --bg: rgba(0,0,0,0.85);
+      --bg: rgba(0,0,0,0.6);   /* lighter translucent background */
       --fg: #ffffff;
       --border: rgba(255,255,255,0.2);
-      --radius: 12px;
-      --padY: 8px;
-      --padX: 14px;
-      --gap: 10px;
+      --radius: 16px;          /* rounder corners */
+      --padY: 4px;             /* tighter vertical padding */
+      --padX: 10px;            /* tighter horizontal padding */
+      --gap: 8px;
       --font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     }
     html, body { margin: 0; padding: 0; background: transparent; }
@@ -21,7 +20,7 @@
       display: inline-block;
       color: var(--fg);
       font-family: var(--font);
-      font-size: 18px;
+      font-size: 16px;         /* smaller font */
       line-height: 1.2;
     }
     .pill {
