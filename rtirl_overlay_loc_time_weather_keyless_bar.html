@@ -6,7 +6,7 @@
   <title>Stream Overlay</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=block" rel="stylesheet">
   <style>
     :root {
       --bg: rgba(0,0,0,0.6);   /* translucent black */
@@ -18,12 +18,21 @@
       --gap: 8px;
       --font: 'Inter', Arial, Helvetica, sans-serif;
     }
+
+    /* Force font everywhere — prevents SamsungOne substitution */
+    html, body, #overlay, .segment, .sep, span, div, * {
+      font-family: var(--font) !important;
+      font-synthesis: none;
+      -webkit-text-size-adjust: 100%;
+      text-rendering: optimizeLegibility;
+    }
+
     html, body { margin: 0; padding: 0; background: transparent; }
     body {
       display: inline-block;
       color: var(--fg);
       font-family: var(--font);
-      font-size: 14px;         /* smaller font */
+      font-size: 14px;         /* your current size */
       line-height: 1.2;
     }
     .pill {
@@ -55,6 +64,7 @@
     <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji">☁️</span><span id="weather" class="muted">--</span></span>
   </div>
 
+  <!-- JS unchanged -->
   <script>
     const PULL_KEY = "oxicqnnw52j6pjgc"; // your RTIRL pull key
     const TEMP_UNITS = "f"; // "f" for °F, "c" for °C
