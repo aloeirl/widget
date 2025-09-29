@@ -4,19 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stream Overlay</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: rgba(0,0,0,0.6);   /* lighter translucent background */
+      --bg: rgba(0,0,0,0.6);   /* translucent black */
       --fg: #ffffff;
-      --border: rgba(255,255,255,0.4);
-      --radius: 8px;          /* rounder corners */
+      --border: rgba(255,255,255,0.4); /* more visible border */
+      --radius: 8px;           /* less rounded */
       --padY: 4px;             /* tighter vertical padding */
       --padX: 10px;            /* tighter horizontal padding */
       --gap: 8px;
-      --font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
     html, body { margin: 0; padding: 0; background: transparent; }
     body {
@@ -40,7 +37,9 @@
     .segment { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
     .muted { opacity: 0.9; font-weight: 600; }
     .sep {
-      .sep { opacity: 0.4; }
+      color: var(--border);  /* match border tone */
+      font-weight: 400;      /* lighter stroke */
+      font-size: 0.85em;     /* smaller than text */
     }
   </style>
 </head>
@@ -54,7 +53,7 @@
   </div>
 
   <script>
-    const PULL_KEY = "oxicqnnw52j6pjgc";
+    const PULL_KEY = "oxicqnnw52j6pjgc"; // your RTIRL pull key
     const TEMP_UNITS = "f"; // "f" for °F, "c" for °C
 
     const elLoc = document.getElementById("loc");
