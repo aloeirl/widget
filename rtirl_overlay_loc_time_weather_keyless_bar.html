@@ -15,10 +15,19 @@
       font-display: block;
     }
 
+    /* ✅ Subset Apple-style emoji you generated with pyftsubset */
+    @font-face {
+      font-family: "OverlayAppleEmoji";
+      src: url("./fonts/AppleColorEmoji-rtirl.woff2") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
     :root {
       --bg: rgba(0,0,0,0.6);   /* translucent black */
       --fg: #ffffff;
-      --border: rgba(255,255,255,0.4); /* more visible border */
+      --border: rgba(255,255,255,0.4); /* subtle border */
       --radius: 8px;
       --padY: 4px;
       --padX: 10px;
@@ -26,12 +35,20 @@
       --font: "OverlayArial", Arial, Helvetica, sans-serif;
     }
 
-    /* Force font everywhere */
+    /* Force text font everywhere by default */
     html, body, #overlay, .segment, .sep, span, div, * {
       font-family: var(--font) !important;
       font-synthesis: none;
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
+    }
+
+    /* ✅ Use emoji font only where needed */
+    .emoji {
+      font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
+      font-synthesis: none;
+      line-height: 1;
+      display: inline-block;
     }
 
     html, body { margin: 0; padding: 0; background: transparent; }
@@ -53,7 +70,7 @@
       box-sizing: border-box;
       white-space: nowrap;
 
-      /* Subtle glow for visibility */
+      /* Softer box glow for visibility on bright scenes */
       box-shadow:
         0 0 4px rgba(0,0,0,0.35),
         0 2px 6px rgba(0,0,0,0.25);
@@ -66,11 +83,11 @@
 </head>
 <body>
   <div id="overlay" class="pill">
-    <span id="locSeg" class="segment"><span>📍</span><span id="loc">Locating…</span></span>
+    <span id="locSeg" class="segment"><span class="emoji">📍</span><span id="loc">Locating…</span></span>
     <span class="sep">|</span>
-    <span id="timeSeg" class="segment"><span>🕒</span><span id="time">--:-- --</span></span>
+    <span id="timeSeg" class="segment"><span class="emoji">🕒</span><span id="time">--:-- --</span></span>
     <span class="sep">|</span>
-    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji">☁️</span><span id="weather" class="muted">--</span></span>
+    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji" class="emoji">☁️</span><span id="weather" class="muted">--</span></span>
   </div>
 
   <script>
@@ -103,7 +120,7 @@
         if (!coords) {
           if (!lastPlace) elLoc.textContent = "??????";
           elTime.textContent = "??????";
-          elWxEmoji.textContent = "〰️";
+          elWxEmoji.textContent = "🌀";   // ✅ swirl
           elWeather.textContent = "??????";
           elWxSeg.style.display="inline-flex";
           return;
@@ -125,7 +142,7 @@
         console.error(e);
         elLoc.textContent = "??????";
         elTime.textContent = "??????";
-        elWxEmoji.textContent = "〰️";
+        elWxEmoji.textContent = "🌀";     // ✅ swirl
         elWeather.textContent = "??????";
         elWxSeg.style.display="inline-flex";
       }
@@ -174,7 +191,7 @@
         const w = await resp.json();
         const cw = w.current_weather;
         if (!cw) {
-          elWxEmoji.textContent = "〰️";
+          elWxEmoji.textContent = "🌀";   // ✅ swirl
           elWeather.textContent = "??????";
           elWxSeg.style.display="inline-flex";
           return;
@@ -189,7 +206,7 @@
         elWxSeg.style.display = "inline-flex";
       } catch (e) {
         console.warn("weather fail", e);
-        elWxEmoji.textContent = "〰️";
+        elWxEmoji.textContent = "🌀";     // ✅ swirl
         elWeather.textContent = "??????";
         elWxSeg.style.display="inline-flex";
       }
