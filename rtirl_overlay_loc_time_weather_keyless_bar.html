@@ -6,22 +6,6 @@
   <title>Stream Overlay</title>
 
   <style>
-    /* Self-hosted Arial Regular */
-    @font-face {
-      font-family: "OverlayArial";
-      src: url("./fonts/ARIAL.woff2") format("woff2");
-      font-weight: 400;
-      font-style: normal;
-      font-display: block;
-    }
-    /* Self-hosted Arial Medium */
-    @font-face {
-      font-family: "OverlayArial";
-      src: url("./fonts/ArialMdm.woff2") format("woff2");
-      font-weight: 500;
-      font-style: normal;
-      font-display: block;
-    }
     /* Self-hosted Arial Bold */
     @font-face {
       font-family: "OverlayArial";
@@ -31,27 +15,18 @@
       font-display: block;
     }
 
-    /* Subset Apple-style emoji (your small file) */
-    @font-face {
-      font-family: "OverlayAppleEmoji";
-      src: url("./fonts/AppleColorEmoji-rtirl.woff2") format("woff2");
-      font-weight: 400;
-      font-style: normal;
-      font-display: swap;
-    }
-
     :root {
-      --bg: rgba(0,0,0,0.6);         /* translucent black */
+      --bg: rgba(0,0,0,0.6);   /* translucent black */
       --fg: #ffffff;
-      --border: rgba(255,255,255,0.4);
-      --radius: 8px;                 /* slightly rounded */
+      --border: rgba(255,255,255,0.4); /* more visible border */
+      --radius: 8px;
       --padY: 4px;
       --padX: 10px;
       --gap: 8px;
       --font: "OverlayArial", Arial, Helvetica, sans-serif;
     }
 
-    /* Force text font by default */
+    /* Force font everywhere */
     html, body, #overlay, .segment, .sep, span, div, * {
       font-family: var(--font) !important;
       font-synthesis: none;
@@ -59,19 +34,11 @@
       text-rendering: optimizeLegibility;
     }
 
-    /* Use Apple emoji for emoji spans */
-    .emoji {
-      font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
-      font-synthesis: none;
-      line-height: 1;
-      display: inline-block;
-    }
-
     html, body { margin: 0; padding: 0; background: transparent; }
     body {
       display: inline-block;
       color: var(--fg);
-      font-size: 16px;               /* your current size */
+      font-size: 16px;
       line-height: 1.2;
     }
 
@@ -86,35 +53,29 @@
       box-sizing: border-box;
       white-space: nowrap;
 
-      /* 🔥 Black glow to pop on bright backgrounds */
+      /* Subtle glow for visibility */
       box-shadow:
-        0 0 4px rgba(0,0,0,0.4),
-        0 2px 6px rgba(0,0,0,0.3);
+        0 0 4px rgba(0,0,0,0.35),
+        0 2px 6px rgba(0,0,0,0.25);
     }
 
-    /* Use Bold (700) for the text segments */
     .segment { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
     .muted { opacity: 0.9; font-weight: 700; }
-
-    .sep {
-      color: var(--border);
-      font-weight: 400;
-      font-size: 0.85em;
-    }
+    .sep { color: var(--border); font-weight: 400; font-size: 0.85em; }
   </style>
 </head>
 <body>
   <div id="overlay" class="pill">
-    <span id="locSeg" class="segment"><span class="emoji">📍</span><span id="loc">Locating…</span></span>
+    <span id="locSeg" class="segment"><span>📍</span><span id="loc">Locating…</span></span>
     <span class="sep">|</span>
-    <span id="timeSeg" class="segment"><span class="emoji">🕒</span><span id="time">--:-- --</span></span>
+    <span id="timeSeg" class="segment"><span>🕒</span><span id="time">--:-- --</span></span>
     <span class="sep">|</span>
-    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji" class="emoji">☁️</span><span id="weather" class="muted">--</span></span>
+    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji">☁️</span><span id="weather" class="muted">--</span></span>
   </div>
 
   <script>
-    const PULL_KEY = "t5c7wva10sbz894n"; // your RTIRL pull key
-    const TEMP_UNITS = "f";              // "f" for °F, "c" for °C
+    const PULL_KEY = "oxicqnnw52j6pjgc"; // your RTIRL pull key
+    const TEMP_UNITS = "f"; // "f" for °F, "c" for °C
 
     const elLoc = document.getElementById("loc");
     const elTime = document.getElementById("time");
@@ -122,7 +83,6 @@
     const elWeather = document.getElementById("weather");
     const elWxEmoji = document.getElementById("wxEmoji");
 
-    /* ---------------- Clock ---------------- */
     function to12h(date) {
       let h = date.getHours();
       const m = date.getMinutes();
@@ -130,45 +90,32 @@
       h = h % 12; if (h === 0) h = 12;
       return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
     }
-    let unknownMode = false;
-    function tickClock(){
-      if (!unknownMode) elTime.textContent = to12h(new Date());
-    }
+    function tickClock(){ elTime.textContent = to12h(new Date()); }
     setInterval(tickClock, 1000); tickClock();
 
-    /* -------------- Unknown fallback -------------- */
-    function setAllUnknown() {
-      unknownMode = true;
-      elLoc.textContent = "??????";
-      elTime.textContent = "??????";
-      elWeather.textContent = "??????";
-      elWxEmoji.textContent = "🌀";     // swirl
-      elWxSeg.style.display = "inline-flex";
-    }
-    function clearUnknown() {
-      if (unknownMode) { unknownMode = false; tickClock(); }
-    }
-
-    /* -------------- RTIRL + Weather -------------- */
     let lastLat=null,lastLon=null,lastPlace=null;
-
     async function fetchRTIRL() {
       try {
         const res = await fetch(`https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}`, { cache: "no-store" });
         if (!res.ok) throw new Error("RTIRL pull failed");
         const data = await res.json();
         const coords = extractLatLon(data);
-
-        if (!coords) { setAllUnknown(); return; }   // no location → show ??????
-        clearUnknown();
-
+        if (!coords) {
+          if (!lastPlace) elLoc.textContent = "??????";
+          elTime.textContent = "??????";
+          elWxEmoji.textContent = "〰️";
+          elWeather.textContent = "??????";
+          elWxSeg.style.display="inline-flex";
+          return;
+        }
         const { lat, lon } = coords;
 
         if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
           reverseGeocode(lat, lon).then(name => {
             if (name) { lastPlace = name; elLoc.textContent = name; }
           }).catch(()=>{});
-          lastLat = lat; lastLon = lon;
+          lastLat = lat;
+          lastLon = lon;
         } else {
           elLoc.textContent = lastPlace;
         }
@@ -176,7 +123,11 @@
         updateWeather(lat, lon);
       } catch (e) {
         console.error(e);
-        setAllUnknown();                      // RTIRL offline → show ??????
+        elLoc.textContent = "??????";
+        elTime.textContent = "??????";
+        elWxEmoji.textContent = "〰️";
+        elWeather.textContent = "??????";
+        elWxSeg.style.display="inline-flex";
       }
     }
 
@@ -222,27 +173,28 @@
         if (!resp.ok) throw new Error("OM HTTP " + resp.status);
         const w = await resp.json();
         const cw = w.current_weather;
-        if (!cw) { elWxSeg.style.display="none"; return; }
-
+        if (!cw) {
+          elWxEmoji.textContent = "〰️";
+          elWeather.textContent = "??????";
+          elWxSeg.style.display="inline-flex";
+          return;
+        }
         const temp = Math.round(cw.temperature);
         const code = Number(cw.weathercode);
-        const unit = TEMP_UNITS==="f" ? "°F" : "°C";
-
         const emoji = weatherEmoji(code);
+        const unit = TEMP_UNITS==="f" ? "°F" : "°C";
         const text = codeToText(code);
-
-        elWxEmoji.textContent = emoji;                 // class="emoji" keeps Apple emoji
+        elWxEmoji.textContent = emoji;
         elWeather.textContent = `${temp}${unit} ${text}`;
         elWxSeg.style.display = "inline-flex";
       } catch (e) {
         console.warn("weather fail", e);
-        // Spec only asked to show ?????? when RTIRL offline / no location,
-        // so if weather alone fails we just hide weather segment:
-        elWxSeg.style.display = "none";
+        elWxEmoji.textContent = "〰️";
+        elWeather.textContent = "??????";
+        elWxSeg.style.display="inline-flex";
       }
     }
 
-    /* --------- Icon + text mapping (keep as you had) --------- */
     function weatherEmoji(code){
       if ([0].includes(code)) return "☀️";
       if ([1,2,3].includes(code)) return "🌤️";
