@@ -6,13 +6,22 @@
   <title>Stream Overlay</title>
 
   <style>
-    /* Self-hosted Arial Bold (unique name, cache-busted) */
+    /* Self-hosted Arial Bold (unique name + cache-bust) */
     @font-face {
       font-family: "OverlayArialBold";
-      src: url("./fonts/ARIALBD.woff2?v=2") format("woff2");
+      src: url("./fonts/ARIALBD.woff2?v=3") format("woff2");
       font-weight: 700;
       font-style: normal;
       font-display: block;
+    }
+
+    /* Self-hosted subset Apple Color Emoji (your pyftsubset output) */
+    @font-face {
+      font-family: "OverlayAppleEmoji";
+      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=3") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
     }
 
     :root {
@@ -26,12 +35,20 @@
       --font: "OverlayArialBold", Arial, Helvetica, sans-serif;
     }
 
-    /* Force font everywhere */
+    /* Text uses Arial Bold everywhere by default */
     html, body, #overlay, .segment, .sep, span, div, * {
       font-family: var(--font) !important;
       font-synthesis: none;
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
+    }
+
+    /* Emoji spans explicitly use the emoji font (with safe fallbacks) */
+    .emoji {
+      font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
+      font-synthesis: none;
+      line-height: 1;
+      display: inline-block;
     }
 
     html, body { margin: 0; padding: 0; background: transparent; }
@@ -52,14 +69,9 @@
       background: var(--bg);
       box-sizing: border-box;
       white-space: nowrap;
-
-      /* Subtle box glow only */
-      box-shadow:
-        0 0 3px rgba(0,0,0,0.25),
-        0 1px 4px rgba(0,0,0,0.25);
-      font-weight: 700; /* everything bold inside */
+      box-shadow: 0 0 3px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.25);
+      font-weight: 700; /* bold by default */
     }
-
     .segment { display: inline-flex; align-items: center; gap: 6px; }
     .muted { opacity: 0.9; }
     .sep { color: var(--border); font-weight: 400; font-size: 0.85em; }
@@ -67,16 +79,16 @@
 </head>
 <body>
   <div id="overlay" class="pill">
-    <span id="locSeg" class="segment"><span>📍</span><span id="loc">Locating…</span></span>
+    <span id="locSeg" class="segment"><span class="emoji">📍</span><span id="loc">Locating…</span></span>
     <span class="sep">|</span>
-    <span id="timeSeg" class="segment"><span>🕒</span><span id="time">--:-- --</span></span>
+    <span id="timeSeg" class="segment"><span class="emoji">🕒</span><span id="time">--:-- --</span></span>
     <span class="sep">|</span>
-    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji">☁️</span><span id="weather" class="muted">--</span></span>
+    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji" class="emoji">☁️</span><span id="weather" class="muted">--</span></span>
   </div>
 
   <script>
-    const PULL_KEY = "t5c7wva10sbz894n"; // your RTIRL pull key
-    const TEMP_UNITS = "f"; // "f" for °F, "c" for °C
+    const PULL_KEY = "t5c7wva10sbz894n";
+    const TEMP_UNITS = "f";
 
     const elLoc = document.getElementById("loc");
     const elTime = document.getElementById("time");
@@ -95,24 +107,20 @@
     setInterval(tickClock, 1000); tickClock();
 
     let lastLat=null,lastLon=null,lastPlace=null;
+
     async function fetchRTIRL() {
       try {
         const res = await fetch(`https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}`, { cache: "no-store" });
         if (!res.ok) throw new Error("RTIRL pull failed");
         const data = await res.json();
         const coords = extractLatLon(data);
-        if (!coords) {
-          showUnknown();
-          return;
-        }
+        if (!coords) { showUnknown(); return; }
+
         const { lat, lon } = coords;
 
         if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
-          reverseGeocode(lat, lon).then(name => {
-            if (name) { lastPlace = name; elLoc.textContent = name; }
-          }).catch(()=>{});
-          lastLat = lat;
-          lastLon = lon;
+          reverseGeocode(lat, lon).then(name => { if (name) { lastPlace = name; elLoc.textContent = name; } }).catch(()=>{});
+          lastLat = lat; lastLon = lon;
         } else {
           elLoc.textContent = lastPlace;
         }
@@ -127,8 +135,8 @@
     function showUnknown() {
       elLoc.textContent = "??????";
       elTime.textContent = "??????";
-      elWxEmoji.textContent = "🌀";
       elWeather.textContent = "??????";
+      elWxEmoji.textContent = "🌀";
       elWxSeg.style.display="inline-flex";
     }
 
@@ -174,25 +182,15 @@
         if (!resp.ok) throw new Error("OM HTTP " + resp.status);
         const w = await resp.json();
         const cw = w.current_weather;
-        if (!cw) {
-          elWxEmoji.textContent = "🌀";
-          elWeather.textContent = "??????";
-          elWxSeg.style.display="inline-flex";
-          return;
-        }
+        if (!cw) { elWxEmoji.textContent = "🌀"; elWeather.textContent = "??????"; elWxSeg.style.display="inline-flex"; return; }
         const temp = Math.round(cw.temperature);
         const code = Number(cw.weathercode);
-        const emoji = weatherEmoji(code);
-        const unit = TEMP_UNITS==="f" ? "°F" : "°C";
-        const text = codeToText(code);
-        elWxEmoji.textContent = emoji;
-        elWeather.textContent = `${temp}${unit} ${text}`;
+        elWxEmoji.textContent = weatherEmoji(code);
+        elWeather.textContent = `${temp}${TEMP_UNITS==="f" ? "°F" : "°C"} ${codeToText(code)}`;
         elWxSeg.style.display = "inline-flex";
       } catch (e) {
         console.warn("weather fail", e);
-        elWxEmoji.textContent = "🌀";
-        elWeather.textContent = "??????";
-        elWxSeg.style.display="inline-flex";
+        elWxEmoji.textContent = "🌀"; elWeather.textContent = "??????"; elWxSeg.style.display="inline-flex";
       }
     }
 
@@ -206,7 +204,6 @@
       if ([95,96,99].includes(code)) return "⛈️";
       return "☁️";
     }
-
     function codeToText(code){
       const map = {
         0:"Sunny",1:"Mostly Sunny",2:"Partly Cloudy",3:"Cloudy",
