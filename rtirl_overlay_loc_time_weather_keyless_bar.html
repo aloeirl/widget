@@ -6,49 +6,32 @@
   <title>Stream Overlay</title>
 
   <style>
-    /* Self-hosted Arial Bold */
+    /* Self-hosted Arial Bold (unique name, cache-busted) */
     @font-face {
-      font-family: "OverlayArial";
-      src: url("./fonts/ARIALBD.woff2") format("woff2");
+      font-family: "OverlayArialBold";
+      src: url("./fonts/ARIALBD.woff2?v=2") format("woff2");
       font-weight: 700;
       font-style: normal;
       font-display: block;
     }
 
-    /* ✅ Subset Apple-style emoji you generated with pyftsubset */
-    @font-face {
-      font-family: "OverlayAppleEmoji";
-      src: url("./fonts/AppleColorEmoji-rtirl.woff2") format("woff2");
-      font-weight: 400;
-      font-style: normal;
-      font-display: swap;
-    }
-
     :root {
-      --bg: rgba(0,0,0,0.6);   /* translucent black */
+      --bg: rgba(0,0,0,0.6);
       --fg: #ffffff;
-      --border: rgba(255,255,255,0.4); /* subtle border */
+      --border: rgba(255,255,255,0.4);
       --radius: 8px;
       --padY: 4px;
       --padX: 10px;
       --gap: 8px;
-      --font: "OverlayArial", Arial, Helvetica, sans-serif;
+      --font: "OverlayArialBold", Arial, Helvetica, sans-serif;
     }
 
-    /* Force text font everywhere by default */
+    /* Force font everywhere */
     html, body, #overlay, .segment, .sep, span, div, * {
       font-family: var(--font) !important;
       font-synthesis: none;
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
-    }
-
-    /* ✅ Use emoji font only where needed */
-    .emoji {
-      font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
-      font-synthesis: none;
-      line-height: 1;
-      display: inline-block;
     }
 
     html, body { margin: 0; padding: 0; background: transparent; }
@@ -70,24 +53,25 @@
       box-sizing: border-box;
       white-space: nowrap;
 
-      /* Softer box glow for visibility on bright scenes */
+      /* Subtle box glow only */
       box-shadow:
-        0 0 4px rgba(0,0,0,0.35),
-        0 2px 6px rgba(0,0,0,0.25);
+        0 0 3px rgba(0,0,0,0.25),
+        0 1px 4px rgba(0,0,0,0.25);
+      font-weight: 700; /* everything bold inside */
     }
 
-    .segment { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
-    .muted { opacity: 0.9; font-weight: 700; }
+    .segment { display: inline-flex; align-items: center; gap: 6px; }
+    .muted { opacity: 0.9; }
     .sep { color: var(--border); font-weight: 400; font-size: 0.85em; }
   </style>
 </head>
 <body>
   <div id="overlay" class="pill">
-    <span id="locSeg" class="segment"><span class="emoji">📍</span><span id="loc">Locating…</span></span>
+    <span id="locSeg" class="segment"><span>📍</span><span id="loc">Locating…</span></span>
     <span class="sep">|</span>
-    <span id="timeSeg" class="segment"><span class="emoji">🕒</span><span id="time">--:-- --</span></span>
+    <span id="timeSeg" class="segment"><span>🕒</span><span id="time">--:-- --</span></span>
     <span class="sep">|</span>
-    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji" class="emoji">☁️</span><span id="weather" class="muted">--</span></span>
+    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji">☁️</span><span id="weather" class="muted">--</span></span>
   </div>
 
   <script>
@@ -118,11 +102,7 @@
         const data = await res.json();
         const coords = extractLatLon(data);
         if (!coords) {
-          if (!lastPlace) elLoc.textContent = "??????";
-          elTime.textContent = "??????";
-          elWxEmoji.textContent = "🌀";   // ✅ swirl
-          elWeather.textContent = "??????";
-          elWxSeg.style.display="inline-flex";
+          showUnknown();
           return;
         }
         const { lat, lon } = coords;
@@ -140,12 +120,16 @@
         updateWeather(lat, lon);
       } catch (e) {
         console.error(e);
-        elLoc.textContent = "??????";
-        elTime.textContent = "??????";
-        elWxEmoji.textContent = "🌀";     // ✅ swirl
-        elWeather.textContent = "??????";
-        elWxSeg.style.display="inline-flex";
+        showUnknown();
       }
+    }
+
+    function showUnknown() {
+      elLoc.textContent = "??????";
+      elTime.textContent = "??????";
+      elWxEmoji.textContent = "🌀";
+      elWeather.textContent = "??????";
+      elWxSeg.style.display="inline-flex";
     }
 
     function approxEqual(a,b,eps=1e-4){ if(a==null||b==null) return false; return Math.abs(a-b)<=eps; }
@@ -191,7 +175,7 @@
         const w = await resp.json();
         const cw = w.current_weather;
         if (!cw) {
-          elWxEmoji.textContent = "🌀";   // ✅ swirl
+          elWxEmoji.textContent = "🌀";
           elWeather.textContent = "??????";
           elWxSeg.style.display="inline-flex";
           return;
@@ -206,7 +190,7 @@
         elWxSeg.style.display = "inline-flex";
       } catch (e) {
         console.warn("weather fail", e);
-        elWxEmoji.textContent = "🌀";     // ✅ swirl
+        elWxEmoji.textContent = "🌀";
         elWeather.textContent = "??????";
         elWxSeg.style.display="inline-flex";
       }
