@@ -15,7 +15,7 @@
       font-display: block;
     }
 
-    /* Self-hosted Apple Emoji (subset from pyftsubset) */
+    /* Self-hosted Apple Emoji subset (pyftsubset output) */
     @font-face {
       font-family: "OverlayAppleEmoji";
       src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=3") format("woff2");
@@ -35,7 +35,6 @@
       --font: "OverlayArialBold", Arial, Helvetica, sans-serif;
     }
 
-    /* Text uses Arial Bold everywhere */
     html, body, #overlay, .segment, .sep, span, div, * {
       font-family: var(--font) !important;
       font-synthesis: none;
@@ -43,9 +42,9 @@
       text-rendering: optimizeLegibility;
     }
 
-    /* Emoji spans explicitly use emoji font */
+    /* Emoji spans use emoji font explicitly */
     .emoji {
-      font-family: "OverlayAppleEmoji", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+      font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
       font-synthesis: none;
       line-height: 1;
       display: inline-block;
@@ -98,6 +97,9 @@
     const elWeather = document.getElementById("weather");
     const elWxEmoji = document.getElementById("wxEmoji");
 
+    let stale = false;
+    let lastLat = null, lastLon = null, lastPlace = null;
+
     function to12h(date) {
       let h = date.getHours();
       const m = date.getMinutes();
@@ -105,10 +107,15 @@
       h = h % 12; if (h === 0) h = 12;
       return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
     }
-    function tickClock(){ elTime.textContent = to12h(new Date()); }
-    setInterval(tickClock, 1000); tickClock();
 
-    let lastLat = null, lastLon = null, lastPlace = null;
+    function tickClock() {
+      if (stale) {
+        elTime.textContent = "??????";
+      } else {
+        elTime.textContent = to12h(new Date());
+      }
+    }
+    setInterval(tickClock, 1000); tickClock();
 
     function getLastUpdateMs(d) {
       const candidates = [
@@ -132,7 +139,9 @@
         const coords = extractLatLon(data);
         if (!coords) { showUnknown(); return; }
 
+        stale = false; // fresh again
         const { lat, lon } = coords;
+
         if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
           reverseGeocode(lat, lon).then(name => {
             if (name) { lastPlace = name; elLoc.textContent = name; }
@@ -151,6 +160,7 @@
     }
 
     function showUnknown() {
+      stale = true;
       elLoc.textContent = "??????";
       elTime.textContent = "??????";
       elWxEmoji.textContent = "🌀";
@@ -183,7 +193,7 @@
         addr.suburb || "",
         addr.city || addr.town || addr.village || "",
       ].filter(Boolean);
-      return parts.length ? parts.join(", ") : (j.display_name || "").split(",").slice(0,3).join(", ");
+      return parts.length ? parts.join(", ") : (j.display_name || "").split(", ").slice(0,3).join(", ");
     }
 
     async function updateWeather(lat, lon) {
@@ -239,8 +249,9 @@
       return map[code] || "Clouds";
     }
 
+    // initial fetch + every 30s
     fetchRTIRL();
-    setInterval(fetchRTIRL, 5000);
+    setInterval(fetchRTIRL, 30000);
   </script>
 </body>
 </html>
