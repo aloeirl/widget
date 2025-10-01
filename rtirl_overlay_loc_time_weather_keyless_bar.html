@@ -6,7 +6,7 @@
   <title>Stream Overlay</title>
 
   <style>
-    /* Self-hosted Arial Bold (unique name + cache-bust) */
+    /* Self-hosted Arial Bold */
     @font-face {
       font-family: "OverlayArialBold";
       src: url("./fonts/ARIALBD.woff2?v=3") format("woff2");
@@ -15,7 +15,7 @@
       font-display: block;
     }
 
-    /* Self-hosted subset Apple Color Emoji (your pyftsubset output) */
+    /* Self-hosted Apple Emoji (subset from pyftsubset) */
     @font-face {
       font-family: "OverlayAppleEmoji";
       src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=3") format("woff2");
@@ -35,7 +35,7 @@
       --font: "OverlayArialBold", Arial, Helvetica, sans-serif;
     }
 
-    /* Text uses Arial Bold everywhere by default */
+    /* Text uses Arial Bold everywhere */
     html, body, #overlay, .segment, .sep, span, div, * {
       font-family: var(--font) !important;
       font-synthesis: none;
@@ -43,9 +43,9 @@
       text-rendering: optimizeLegibility;
     }
 
-    /* Emoji spans explicitly use the emoji font (with safe fallbacks) */
+    /* Emoji spans explicitly use emoji font */
     .emoji {
-      font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
+      font-family: "OverlayAppleEmoji", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
       font-synthesis: none;
       line-height: 1;
       display: inline-block;
@@ -70,8 +70,9 @@
       box-sizing: border-box;
       white-space: nowrap;
       box-shadow: 0 0 3px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.25);
-      font-weight: 700; /* bold by default */
+      font-weight: 700;
     }
+
     .segment { display: inline-flex; align-items: center; gap: 6px; }
     .muted { opacity: 0.9; }
     .sep { color: var(--border); font-weight: 400; font-size: 0.85em; }
@@ -89,6 +90,7 @@
   <script>
     const PULL_KEY = "t5c7wva10sbz894n";
     const TEMP_UNITS = "f";
+    const STALE_MS = 20 * 60 * 1000; // 20 minutes
 
     const elLoc = document.getElementById("loc");
     const elTime = document.getElementById("time");
@@ -106,26 +108,42 @@
     function tickClock(){ elTime.textContent = to12h(new Date()); }
     setInterval(tickClock, 1000); tickClock();
 
-    let lastLat=null,lastLon=null,lastPlace=null;
+    let lastLat = null, lastLon = null, lastPlace = null;
+
+    function getLastUpdateMs(d) {
+      const candidates = [
+        d?.updatedAt, d?.reportedAt, d?.timestamp,
+        d?.location?.updatedAt, d?.location?.reportedAt
+      ].filter(v => typeof v === "number" && !Number.isNaN(v));
+      return candidates.length ? Math.max(...candidates) : null;
+    }
 
     async function fetchRTIRL() {
       try {
-        const res = await fetch(`https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}`, { cache: "no-store" });
+        const url = `https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`;
+        const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error("RTIRL pull failed");
+
         const data = await res.json();
+        const lastUpdate = getLastUpdateMs(data);
+        const tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
+        if (tooOld) { showUnknown(); return; }
+
         const coords = extractLatLon(data);
         if (!coords) { showUnknown(); return; }
 
         const { lat, lon } = coords;
-
         if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
-          reverseGeocode(lat, lon).then(name => { if (name) { lastPlace = name; elLoc.textContent = name; } }).catch(()=>{});
+          reverseGeocode(lat, lon).then(name => {
+            if (name) { lastPlace = name; elLoc.textContent = name; }
+          }).catch(()=>{});
           lastLat = lat; lastLon = lon;
         } else {
           elLoc.textContent = lastPlace;
         }
 
         updateWeather(lat, lon);
+
       } catch (e) {
         console.error(e);
         showUnknown();
@@ -135,9 +153,9 @@
     function showUnknown() {
       elLoc.textContent = "??????";
       elTime.textContent = "??????";
-      elWeather.textContent = "??????";
       elWxEmoji.textContent = "🌀";
-      elWxSeg.style.display="inline-flex";
+      elWeather.textContent = "??????";
+      elWxSeg.style.display = "inline-flex";
     }
 
     function approxEqual(a,b,eps=1e-4){ if(a==null||b==null) return false; return Math.abs(a-b)<=eps; }
@@ -165,8 +183,7 @@
         addr.suburb || "",
         addr.city || addr.town || addr.village || "",
       ].filter(Boolean);
-      const nice = parts.length ? parts.join(", ") : (j.display_name || "").split(",").slice(0,3).join(", ");
-      return nice || null;
+      return parts.length ? parts.join(", ") : (j.display_name || "").split(",").slice(0,3).join(", ");
     }
 
     async function updateWeather(lat, lon) {
@@ -182,7 +199,7 @@
         if (!resp.ok) throw new Error("OM HTTP " + resp.status);
         const w = await resp.json();
         const cw = w.current_weather;
-        if (!cw) { elWxEmoji.textContent = "🌀"; elWeather.textContent = "??????"; elWxSeg.style.display="inline-flex"; return; }
+        if (!cw) { showUnknown(); return; }
         const temp = Math.round(cw.temperature);
         const code = Number(cw.weathercode);
         elWxEmoji.textContent = weatherEmoji(code);
@@ -190,7 +207,7 @@
         elWxSeg.style.display = "inline-flex";
       } catch (e) {
         console.warn("weather fail", e);
-        elWxEmoji.textContent = "🌀"; elWeather.textContent = "??????"; elWxSeg.style.display="inline-flex";
+        showUnknown();
       }
     }
 
@@ -204,6 +221,7 @@
       if ([95,96,99].includes(code)) return "⛈️";
       return "☁️";
     }
+
     function codeToText(code){
       const map = {
         0:"Sunny",1:"Mostly Sunny",2:"Partly Cloudy",3:"Cloudy",
