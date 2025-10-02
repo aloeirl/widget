@@ -9,7 +9,7 @@
     /* Self-hosted Arial Bold */
     @font-face {
       font-family: "OverlayArialBold";
-      src: url("./fonts/ARIALBD.woff2?v=4") format("woff2");
+      src: url("./fonts/ARIALBD.woff2?v=5") format("woff2");
       font-weight: 700;
       font-style: normal;
       font-display: block;
@@ -18,7 +18,7 @@
     /* Self-hosted Apple Emoji subset (pyftsubset output) */
     @font-face {
       font-family: "OverlayAppleEmoji";
-      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=4") format("woff2");
+      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=5") format("woff2");
       font-weight: 400;
       font-style: normal;
       font-display: swap;
@@ -181,10 +181,10 @@
 
         const { lat, lon } = coords;
 
-        // show raw coords immediately so we never look "stuck"
+        // Show raw coords immediately so we never look "stuck"
         elLoc.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
 
-        // then try to replace with a nice name
+        // Then try to replace with a nice name
         if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
           reverseGeocode(lat, lon)
             .then(name => { if (name) { lastPlace = name; elLoc.textContent = name; } })
@@ -194,7 +194,7 @@
           elLoc.textContent = lastPlace;
         }
 
-        // weather can fail independently without blanking everything
+        // Weather can fail independently without blanking everything
         updateWeather(lat, lon);
 
       } catch (e) {
@@ -224,9 +224,60 @@
         });
         const resp = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, { cache: "no-store" });
         if (!resp.ok) throw new Error("OM HTTP " + resp.status);
-        const w = await res.json();
-      } catch(e){}
+        const w = await resp.json();
+        const cw = w.current_weather;
+        if (!cw) {
+          elWxEmoji.textContent = "🌀";
+          elWeather.textContent = "??????";
+          elWxSeg.style.display = "inline-flex";
+          return;
+        }
+
+        const temp = Math.round(cw.temperature);
+        const code = Number(cw.weathercode);
+        elWxEmoji.textContent = weatherEmoji(code);
+        elWeather.textContent = `${temp}${TEMP_UNITS==="f" ? "°F" : "°C"} ${codeToText(code)}`;
+        elWxSeg.style.display = "inline-flex";
+      } catch (e) {
+        console.warn("weather fail", e);
+        // keep RTIRL text; just blank weather gracefully
+        elWxEmoji.textContent = "🌀";
+        elWeather.textContent = "??????";
+        elWxSeg.style.display = "inline-flex";
+      }
     }
+
+    // --- emoji + labels ---
+    function weatherEmoji(code){
+      if ([0].includes(code)) return "☀️";
+      if ([1,2,3].includes(code)) return "🌤️";
+      if ([45,48].includes(code)) return "🌫️";
+      if ([51,53,55,56,57].includes(code)) return "🌦️";
+      if ([61,63,65,66,67,80,81,82].includes(code)) return "🌧️";
+      if ([71,73,75,77,85,86].includes(code)) return "❄️";
+      if ([95,96,99].includes(code)) return "⛈️";
+      return "☁️";
+    }
+    function codeToText(code){
+      const map = {
+        0:"Sunny",1:"Mostly Sunny",2:"Partly Cloudy",3:"Cloudy",
+        45:"Foggy",48:"Icy Fog",
+        51:"Light Drizzle",53:"Drizzle",55:"Heavy Drizzle",
+        56:"Freezing Drizzle",57:"Heavy Freezing Drizzle",
+        61:"Light Rain",63:"Rain",65:"Heavy Rain",
+        66:"Freezing Rain",67:"Heavy Freezing Rain",
+        71:"Light Snow",73:"Snow",75:"Heavy Snow",
+        77:"Snow Grains",
+        80:"Showers",81:"Heavy Showers",82:"Violent Showers",
+        85:"Snow Showers",86:"Heavy Snow Showers",
+        95:"Thunderstorm",96:"Thunderstorm With Hail",99:"Severe Thunderstorm"
+      };
+      return map[code] || "Clouds";
+    }
+
+    // initial + every 30s
+    fetchRTIRL();
+    setInterval(fetchRTIRL, 30000);
   </script>
 </body>
 </html>
