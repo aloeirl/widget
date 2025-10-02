@@ -35,6 +35,7 @@
       --font: "OverlayArialBold", Arial, Helvetica, sans-serif;
     }
 
+    /* Text uses Arial Bold everywhere */
     html, body, #overlay, .segment, .sep, span, div, * {
       font-family: var(--font) !important;
       font-synthesis: none;
@@ -42,7 +43,7 @@
       text-rendering: optimizeLegibility;
     }
 
-    /* Emoji spans use emoji font explicitly */
+    /* Emoji spans explicitly use emoji font */
     .emoji {
       font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
       font-synthesis: none;
@@ -73,7 +74,6 @@
     }
 
     .segment { display: inline-flex; align-items: center; gap: 6px; }
-    .muted { opacity: 1; }
     .sep { color: var(--border); font-weight: 400; font-size: 0.85em; }
   </style>
 </head>
@@ -83,13 +83,13 @@
     <span class="sep">|</span>
     <span id="timeSeg" class="segment"><span class="emoji">🕒</span><span id="time">--:-- --</span></span>
     <span class="sep">|</span>
-    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji" class="emoji">☁️</span><span id="weather" class="muted">--</span></span>
+    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji" class="emoji">☁️</span><span id="weather">--</span></span>
   </div>
 
   <script>
-    const PULL_KEY = "1wjousu7l61hzgws";
+    const PULL_KEY = "t5c7wva10sbz894n";
     const TEMP_UNITS = "f";
-    const STALE_MS = 20 * 60 * 1000; // 20 minutes
+    const STALE_MS = 30 * 60 * 1000; // 30 minutes
 
     const elLoc = document.getElementById("loc");
     const elTime = document.getElementById("time");
@@ -100,6 +100,7 @@
     let stale = false;
     let lastLat = null, lastLon = null, lastPlace = null;
 
+    // --- clock ---
     function to12h(date) {
       let h = date.getHours();
       const m = date.getMinutes();
@@ -107,67 +108,32 @@
       h = h % 12; if (h === 0) h = 12;
       return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
     }
-
     function tickClock() {
-      if (stale) {
-        elTime.textContent = "??????";
-      } else {
-        elTime.textContent = to12h(new Date());
-      }
+      elTime.textContent = stale ? "??????" : to12h(new Date());
     }
     setInterval(tickClock, 1000); tickClock();
 
+    // --- timestamp handling (robust) ---
+    function normalizeTs(ts) {
+      if (ts == null) return null;
+      if (typeof ts === "string") {
+        const d = Date.parse(ts);
+        return Number.isNaN(d) ? null : d;
+      }
+      if (typeof ts === "number") {
+        return ts < 1e12 ? ts * 1000 : ts; // seconds -> ms
+      }
+      return null;
+    }
     function getLastUpdateMs(d) {
-      const candidates = [
+      const normalized = [
         d?.updatedAt, d?.reportedAt, d?.timestamp,
         d?.location?.updatedAt, d?.location?.reportedAt
-      ].filter(v => typeof v === "number" && !Number.isNaN(v));
-      return candidates.length ? Math.max(...candidates) : null;
+      ].map(normalizeTs).filter(v => typeof v === "number" && !Number.isNaN(v));
+      return normalized.length ? Math.max(...normalized) : null;
     }
 
-    async function fetchRTIRL() {
-      try {
-        const url = `https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`;
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) throw new Error("RTIRL pull failed");
-
-        const data = await res.json();
-        const lastUpdate = getLastUpdateMs(data);
-        const tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
-        if (tooOld) { showUnknown(); return; }
-
-        const coords = extractLatLon(data);
-        if (!coords) { showUnknown(); return; }
-
-        stale = false; // fresh again
-        const { lat, lon } = coords;
-
-        if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
-          reverseGeocode(lat, lon).then(name => {
-            if (name) { lastPlace = name; elLoc.textContent = name; }
-          }).catch(()=>{});
-          lastLat = lat; lastLon = lon;
-        } else {
-          elLoc.textContent = lastPlace;
-        }
-
-        updateWeather(lat, lon);
-
-      } catch (e) {
-        console.error(e);
-        showUnknown();
-      }
-    }
-
-    function showUnknown() {
-      stale = true;
-      elLoc.textContent = "??????";
-      elTime.textContent = "??????";
-      elWxEmoji.textContent = "🌀";
-      elWeather.textContent = "??????";
-      elWxSeg.style.display = "inline-flex";
-    }
-
+    // --- helpers ---
     function approxEqual(a,b,eps=1e-4){ if(a==null||b==null) return false; return Math.abs(a-b)<=eps; }
     function extractLatLon(d){
       if (d?.location && typeof d.location.latitude==="number" && typeof d.location.longitude==="number") return {lat:d.location.latitude, lon:d.location.longitude};
@@ -196,6 +162,52 @@
       return parts.length ? parts.join(", ") : (j.display_name || "").split(", ").slice(0,3).join(", ");
     }
 
+    // --- RTIRL pull (decides stale/unknown) ---
+    async function fetchRTIRL() {
+      try {
+        const url = `https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error("RTIRL pull failed");
+        const data = await res.json();
+
+        const lastUpdate = getLastUpdateMs(data);
+        const tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
+
+        const coords = extractLatLon(data);
+        if (tooOld || !coords) { showUnknown(); return; }
+
+        // fresh data
+        stale = false;
+        const { lat, lon } = coords;
+
+        if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
+          reverseGeocode(lat, lon)
+            .then(name => { if (name) { lastPlace = name; elLoc.textContent = name; } })
+            .catch(()=>{});
+          lastLat = lat; lastLon = lon;
+        } else {
+          elLoc.textContent = lastPlace;
+        }
+
+        // weather can fail independently without blanking everything
+        updateWeather(lat, lon);
+
+      } catch (e) {
+        console.error(e);
+        showUnknown();
+      }
+    }
+
+    function showUnknown() {
+      stale = true;
+      elLoc.textContent = "??????";
+      elTime.textContent = "??????";
+      elWxEmoji.textContent = "🌀";
+      elWeather.textContent = "??????";
+      elWxSeg.style.display = "inline-flex";
+    }
+
+    // --- Weather (does NOT flip whole widget to ?????? on failure) ---
     async function updateWeather(lat, lon) {
       try {
         const params = new URLSearchParams({
@@ -209,7 +221,8 @@
         if (!resp.ok) throw new Error("OM HTTP " + resp.status);
         const w = await resp.json();
         const cw = w.current_weather;
-        if (!cw) { showUnknown(); return; }
+        if (!cw) { elWxEmoji.textContent = "🌀"; elWeather.textContent = "??????"; elWxSeg.style.display="inline-flex"; return; }
+
         const temp = Math.round(cw.temperature);
         const code = Number(cw.weathercode);
         elWxEmoji.textContent = weatherEmoji(code);
@@ -217,10 +230,13 @@
         elWxSeg.style.display = "inline-flex";
       } catch (e) {
         console.warn("weather fail", e);
-        showUnknown();
+        elWxEmoji.textContent = "🌀";
+        elWeather.textContent = "??????";
+        elWxSeg.style.display = "inline-flex";
       }
     }
 
+    // --- emoji + labels ---
     function weatherEmoji(code){
       if ([0].includes(code)) return "☀️";
       if ([1,2,3].includes(code)) return "🌤️";
@@ -231,7 +247,6 @@
       if ([95,96,99].includes(code)) return "⛈️";
       return "☁️";
     }
-
     function codeToText(code){
       const map = {
         0:"Sunny",1:"Mostly Sunny",2:"Partly Cloudy",3:"Cloudy",
@@ -249,7 +264,7 @@
       return map[code] || "Clouds";
     }
 
-    // initial fetch + every 30s
+    // initial + every 30s
     fetchRTIRL();
     setInterval(fetchRTIRL, 30000);
   </script>
