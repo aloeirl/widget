@@ -9,7 +9,7 @@
     /* Self-hosted Arial Bold */
     @font-face {
       font-family: "OverlayArialBold";
-      src: url("./fonts/ARIALBD.woff2?v=5") format("woff2");
+      src: url("./fonts/ARIALBD.woff2?v=6") format("woff2");
       font-weight: 700;
       font-style: normal;
       font-display: block;
@@ -18,7 +18,7 @@
     /* Self-hosted Apple Emoji subset (pyftsubset output) */
     @font-face {
       font-family: "OverlayAppleEmoji";
-      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=5") format("woff2");
+      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=6") format("woff2");
       font-weight: 400;
       font-style: normal;
       font-display: swap;
@@ -87,9 +87,10 @@
   </div>
 
   <script>
-    const PULL_KEY = "1wjousu7l61hzgws";   // your working key
+    const PULL_KEY = "1wjousu7l61hzgws";     // your current key
     const TEMP_UNITS = "f";
-    const STALE_MS = 30 * 60 * 1000;       // 30 minutes
+    const STALE_MS = 30 * 60 * 1000;         // 30 minutes
+    const STATIONARY_GRACE_MS = 3 * 60 * 60 * 1000; // 3 hours
 
     const elLoc = document.getElementById("loc");
     const elTime = document.getElementById("time");
@@ -171,9 +172,19 @@
         const data = await res.json();
 
         const lastUpdate = getLastUpdateMs(data);
-        const tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
-
         const coords = extractLatLon(data);
+
+        let tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
+
+        // --- Stationary grace ---
+        if (tooOld && coords && lastLat != null && lastLon != null) {
+          const unchanged = approxEqual(coords.lat, lastLat) && approxEqual(coords.lon, lastLon);
+          const AGE_MS = lastUpdate ? (Date.now() - lastUpdate) : Infinity;
+          if (unchanged && AGE_MS < STATIONARY_GRACE_MS) {
+            tooOld = false; // treat as fresh while stationary within grace window
+          }
+        }
+
         if (tooOld || !coords) { showUnknown(); return; }
 
         // ✅ fresh data: clear stale immediately
