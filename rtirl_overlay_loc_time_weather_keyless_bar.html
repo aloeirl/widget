@@ -9,16 +9,16 @@
     /* Self-hosted Arial Bold */
     @font-face {
       font-family: "OverlayArialBold";
-      src: url("./fonts/ARIALBD.woff2?v=8") format("woff2");
+      src: url("./fonts/ARIALBD.woff2?v=4") format("woff2");
       font-weight: 700;
       font-style: normal;
       font-display: block;
     }
 
-    /* Self-hosted Apple Emoji subset */
+    /* Self-hosted Emoji subset (Apple or Microsoft style) */
     @font-face {
       font-family: "OverlayAppleEmoji";
-      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=8") format("woff2");
+      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=4") format("woff2");
       font-weight: 400;
       font-style: normal;
       font-display: swap;
@@ -67,28 +67,34 @@
       background: var(--bg);
       box-sizing: border-box;
       white-space: nowrap;
-      box-shadow: 0 0 3px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.25);
+      box-shadow:
+        0 0 3px rgba(0,0,0,0.2),
+        0 1px 4px rgba(0,0,0,0.2);
       font-weight: 700;
     }
 
     .segment { display: inline-flex; align-items: center; gap: 6px; }
+    .muted { opacity: 0.9; }
     .sep { color: var(--border); font-weight: 400; font-size: 0.85em; }
   </style>
 </head>
+
 <body>
   <div id="overlay" class="pill">
     <span id="locSeg" class="segment"><span class="emoji">📍</span><span id="loc">Locating…</span></span>
     <span class="sep">|</span>
     <span id="timeSeg" class="segment"><span class="emoji">🕒</span><span id="time">--:-- --</span></span>
     <span class="sep">|</span>
-    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji" class="emoji">☁️</span><span id="weather">--</span></span>
+    <span id="wxSeg" class="segment" style="display:none"><span id="wxEmoji" class="emoji">☁️</span><span id="weather" class="muted">--</span></span>
   </div>
 
   <script>
-    const PULL_KEY = "1wjousu7l61hzgws";              // your current key
-    const TEMP_UNITS = "f";
-    const STALE_MS = 30 * 60 * 1000;                  // 30 minutes
-    const STATIONARY_GRACE_MS = 3 * 60 * 60 * 1000;   // 3 hours
+    const PULL_KEY = "1wjousu7l61hzgws"; // your RTIRL pull key
+    const TEMP_UNITS = "f";               // "f" or "c"
+    const STALE_MS = 30 * 60 * 1000;      // 30 minutes
+    const GRACE_MS = 3 * 60 * 60 * 1000;  // 3h stationary grace
+
+    let lastLat=null, lastLon=null, lastPlace=null, currentTZ=null, stale=false;
 
     const elLoc = document.getElementById("loc");
     const elTime = document.getElementById("time");
@@ -96,55 +102,91 @@
     const elWeather = document.getElementById("weather");
     const elWxEmoji = document.getElementById("wxEmoji");
 
-    let stale = false;
-    let lastLat = null, lastLon = null, lastPlace = null;
-    let currentTZ = null; // e.g. "Asia/Tokyo" from Open-Meteo
-
-    // -------- Clock (uses currentTZ if available) --------
+    /* ---------- TIME ---------- */
     function to12h(date, tz) {
-      const d = new Date(date.toLocaleString("en-US", {
-        timeZone: tz || Intl.DateTimeFormat().resolvedOptions().timeZone
-      }));
+      const d = new Date(date.toLocaleString("en-US", { timeZone: tz || Intl.DateTimeFormat().resolvedOptions().timeZone }));
       let h = d.getHours();
       const m = d.getMinutes();
       const ampm = h >= 12 ? "pm" : "am";
       h = h % 12; if (h === 0) h = 12;
       return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
     }
+
     function tickClock() {
       elTime.textContent = stale ? "??????" : to12h(new Date(), currentTZ);
     }
-    setInterval(tickClock, 1000); tickClock();
+    setInterval(tickClock, 1000);
+    tickClock();
 
-    // -------- Timestamp handling --------
-    function normalizeTs(ts) {
-      if (ts == null) return null;
-      if (typeof ts === "string") {
-        const d = Date.parse(ts);
-        return Number.isNaN(d) ? null : d;
-      }
-      if (typeof ts === "number") {
-        return ts < 1e12 ? ts * 1000 : ts; // seconds -> ms
-      }
-      return null;
-    }
+    /* ---------- RTIRL FETCH ---------- */
     function getLastUpdateMs(d) {
-      const normalized = [
+      const candidates = [
         d?.updatedAt, d?.reportedAt, d?.timestamp,
         d?.location?.updatedAt, d?.location?.reportedAt
-      ].map(normalizeTs).filter(v => typeof v === "number" && !Number.isNaN(v));
-      return normalized.length ? Math.max(...normalized) : null;
+      ].filter(v => typeof v === "number" && !Number.isNaN(v));
+      return candidates.length ? Math.max(...candidates) : null;
     }
 
-    // -------- Helpers --------
     function approxEqual(a,b,eps=1e-4){ if(a==null||b==null) return false; return Math.abs(a-b)<=eps; }
-    function extractLatLon(d){
-      if (d?.location && typeof d.location.latitude==="number" && typeof d.location.longitude==="number") {
-        return {lat:d.location.latitude, lon:d.location.longitude};
+
+    function showUnknown() {
+      stale = true;
+      elLoc.textContent = "??????";
+      elTime.textContent = "??????";
+      elWeather.textContent = "??????";
+      elWxEmoji.textContent = "🌀";
+      elWxSeg.style.display = "inline-flex";
+    }
+
+    async function fetchRTIRL() {
+      try {
+        const res = await fetch(`https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) throw new Error("RTIRL pull failed");
+        const data = await res.json();
+        const lastUpdate = getLastUpdateMs(data);
+        const coords = extractLatLon(data);
+
+        if (!coords) { showUnknown(); return; }
+
+        let tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
+
+        // Grace if coords unchanged
+        if (tooOld && coords && lastLat != null && lastLon != null) {
+          const unchanged = approxEqual(coords.lat, lastLat) && approxEqual(coords.lon, lastLon);
+          const AGE_MS = lastUpdate ? (Date.now() - lastUpdate) : Infinity;
+          if (unchanged && AGE_MS < GRACE_MS) tooOld = false;
+        }
+
+        if (tooOld) { showUnknown(); return; }
+
+        stale = false;
+        const { lat, lon } = coords;
+
+        if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
+          reverseGeocode(lat, lon).then(name => {
+            if (name) { lastPlace = name; elLoc.textContent = name; }
+          }).catch(()=>{});
+          lastLat = lat; lastLon = lon;
+        } else {
+          elLoc.textContent = lastPlace;
+        }
+
+        updateWeather(lat, lon);
+      } catch (e) {
+        console.error(e);
+        showUnknown();
       }
+    }
+
+    function extractLatLon(d){
+      if (d?.location && typeof d.location.latitude==="number" && typeof d.location.longitude==="number") return {lat:d.location.latitude, lon:d.location.longitude};
+      if (typeof d.lat==="number" && typeof d.lon==="number") return {lat:d.lat, lon:d.lon};
+      if (typeof d.latitude==="number" && typeof d.longitude==="number") return {lat:d.latitude, lon:d.longitude};
+      if (d?.coords && typeof d.coords.lat==="number" && typeof d.coords.lon==="number") return {lat:d.coords.lat, lon:d.coords.lon};
       return null;
     }
 
+    /* ---------- REVERSE GEOCODE (simplified display) ---------- */
     async function reverseGeocode(lat, lon) {
       const url = new URL("https://nominatim.openstreetmap.org/reverse");
       url.searchParams.set("format", "jsonv2");
@@ -156,71 +198,14 @@
       if (!res.ok) throw new Error("Nominatim HTTP " + res.status);
       const j = await res.json();
       const addr = j.address || {};
-      const parts = [
-        addr.neighbourhood || addr.neighborhood || "",
-        addr.suburb || "",
-        addr.city || addr.town || addr.village || "",
-      ].filter(Boolean);
-      return parts.length ? parts.join(", ") : (j.display_name || "").split(", ").slice(0,3).join(", ");
+
+      const area = addr.neighbourhood || addr.neighborhood || addr.suburb || "";
+      const ward = addr.city_district || addr.borough || addr.city || addr.town || addr.village || "";
+      const parts = [area, ward].filter(Boolean);
+      return parts.length ? parts.join(", ") : (j.display_name || "").split(", ").slice(0,2).join(", ");
     }
 
-    // -------- RTIRL pull (stale/unknown + geocode + weather) --------
-    async function fetchRTIRL() {
-      try {
-        const url = `https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`;
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) throw new Error("RTIRL pull failed");
-        const data = await res.json();
-
-        const lastUpdate = getLastUpdateMs(data);
-        const coords = extractLatLon(data);
-
-        let tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
-
-        // Stationary grace: if coords unchanged and update age < 3h, treat as fresh
-        if (tooOld && coords && lastLat != null && lastLon != null) {
-          const unchanged = approxEqual(coords.lat, lastLat) && approxEqual(coords.lon, lastLon);
-          const AGE_MS = lastUpdate ? (Date.now() - lastUpdate) : Infinity;
-          if (unchanged && AGE_MS < STATIONARY_GRACE_MS) {
-            tooOld = false;
-          }
-        }
-
-        if (tooOld || !coords) { showUnknown(); return; }
-
-        // Fresh: clear stale
-        stale = false;
-        const { lat, lon } = coords;
-
-        // Only show names (never raw coords)
-        if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
-          reverseGeocode(lat, lon)
-            .then(name => { if (name) { lastPlace = name; elLoc.textContent = name; } })
-            .catch(() => { elLoc.textContent = lastPlace || "??????"; });
-          lastLat = lat; lastLon = lon;
-        } else {
-          elLoc.textContent = lastPlace;
-        }
-
-        // Weather updates currentTZ and weather display
-        updateWeather(lat, lon);
-
-      } catch (e) {
-        console.error(e);
-        showUnknown();
-      }
-    }
-
-    function showUnknown() {
-      stale = true;
-      elLoc.textContent = "??????";
-      elTime.textContent = "??????";
-      elWxEmoji.textContent = "🌀";
-      elWeather.textContent = "??????";
-      elWxSeg.style.display = "inline-flex";
-    }
-
-    // -------- Weather (never blanks whole widget) --------
+    /* ---------- WEATHER + TIMEZONE ---------- */
     async function updateWeather(lat, lon) {
       try {
         const params = new URLSearchParams({
@@ -233,34 +218,25 @@
         const resp = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, { cache: "no-store" });
         if (!resp.ok) throw new Error("OM HTTP " + resp.status);
         const w = await resp.json();
-
-        // Capture timezone from weather API (e.g., "Asia/Tokyo", "America/Los_Angeles")
-        if (w && typeof w.timezone === "string") {
-          currentTZ = w.timezone;
-        }
+        if (w && typeof w.timezone === "string") currentTZ = w.timezone;
 
         const cw = w.current_weather;
-        if (!cw) {
-          elWxEmoji.textContent = "🌀";
-          elWeather.textContent = "??????";
-          elWxSeg.style.display = "inline-flex";
-          return;
-        }
+        if (!cw) { showUnknown(); return; }
 
         const temp = Math.round(cw.temperature);
         const code = Number(cw.weathercode);
-        elWxEmoji.textContent = weatherEmoji(code);
-        elWeather.textContent = `${temp}${TEMP_UNITS==="f" ? "°F" : "°C"} ${codeToText(code)}`;
+        const emoji = weatherEmoji(code);
+        const unit = TEMP_UNITS==="f" ? "°F" : "°C";
+        const text = codeToText(code);
+        elWxEmoji.textContent = emoji;
+        elWeather.textContent = `${temp}${unit} ${text}`;
         elWxSeg.style.display = "inline-flex";
       } catch (e) {
         console.warn("weather fail", e);
-        elWxEmoji.textContent = "🌀";
-        elWeather.textContent = "??????";
-        elWxSeg.style.display = "inline-flex";
+        showUnknown();
       }
     }
 
-    // -------- Emoji + labels --------
     function weatherEmoji(code){
       if ([0].includes(code)) return "☀️";
       if ([1,2,3].includes(code)) return "🌤️";
@@ -271,6 +247,7 @@
       if ([95,96,99].includes(code)) return "⛈️";
       return "☁️";
     }
+
     function codeToText(code){
       const map = {
         0:"Sunny",1:"Mostly Sunny",2:"Partly Cloudy",3:"Cloudy",
@@ -288,9 +265,8 @@
       return map[code] || "Clouds";
     }
 
-    // initial + every 30s
     fetchRTIRL();
-    setInterval(fetchRTIRL, 30000);
+    setInterval(fetchRTIRL, 30000); // 30s refresh
   </script>
 </body>
 </html>
