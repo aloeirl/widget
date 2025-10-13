@@ -9,16 +9,15 @@
     /* Self-hosted Arial Bold */
     @font-face {
       font-family: "OverlayArialBold";
-      src: url("./fonts/ARIALBD.woff2?v=9") format("woff2");
+      src: url("./fonts/ARIALBD.woff2?v=11") format("woff2");
       font-weight: 700;
       font-style: normal;
       font-display: block;
     }
-
-    /* Self-hosted Emoji subset (Apple/Microsoft style you built) */
+    /* Self-hosted Emoji subset you built */
     @font-face {
       font-family: "OverlayAppleEmoji";
-      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=9") format("woff2");
+      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=11") format("woff2");
       font-weight: 400;
       font-style: normal;
       font-display: swap;
@@ -41,7 +40,6 @@
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
     }
-
     .emoji {
       font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
       font-synthesis: none;
@@ -56,7 +54,6 @@
       font-size: 16px;
       line-height: 1.2;
     }
-
     .pill {
       display: inline-flex;
       align-items: center;
@@ -70,7 +67,6 @@
       box-shadow: 0 0 3px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.25);
       font-weight: 700;
     }
-
     .segment { display: inline-flex; align-items: center; gap: 6px; }
     .muted { opacity: 0.9; }
     .sep { color: var(--border); font-weight: 400; font-size: 0.85em; }
@@ -87,10 +83,10 @@
   </div>
 
   <script>
-    const PULL_KEY = "1wjousu7l61hzgws";   // your RTIRL pull key
-    const TEMP_UNITS = "f";                 // "f" or "c"
-    const STALE_MS = 30 * 60 * 1000;        // 30 minutes
-    const GRACE_MS = 3 * 60 * 60 * 1000;    // stationary grace (3h)
+    const PULL_KEY = "1wjousu7l61hzgws"; // your RTIRL pull key
+    const TEMP_UNITS = "f";               // "f" or "c"
+    const STALE_MS = 30 * 60 * 1000;      // 30 minutes
+    const GRACE_MS = 3 * 60 * 60 * 1000;  // 3 hours stationary grace
 
     let lastLat=null, lastLon=null, lastPlace=null, currentTZ=null, stale=false;
 
@@ -100,7 +96,7 @@
     const elWeather = document.getElementById("weather");
     const elWxEmoji = document.getElementById("wxEmoji");
 
-    /* ---------- TIME (auto-TZ from weather) ---------- */
+    /* ---------- CLOCK (auto TZ from weather) ---------- */
     function to12h(date, tz) {
       const d = new Date(date.toLocaleString("en-US", {
         timeZone: tz || Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -111,18 +107,18 @@
       h = h % 12; if (h === 0) h = 12;
       return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
     }
-
     function tickClock() {
       elTime.textContent = stale ? "??????" : to12h(new Date(), currentTZ);
     }
-    setInterval(tickClock, 1000);
-    tickClock();
+    setInterval(tickClock, 1000); tickClock();
 
-    /* ---------- TIMESTAMPS ---------- */
+    /* ---------- TIMESTAMP HELPERS ---------- */
     function normalizeTs(ts) {
       if (ts == null) return null;
-      if (typeof ts === "string") { const d = Date.parse(ts); return Number.isNaN(d) ? null : d; }
-      if (typeof ts === "number")  return ts < 1e12 ? ts * 1000 : ts; // sec→ms
+      if (typeof ts === "string") {
+        const d = Date.parse(ts); return Number.isNaN(d) ? null : d;
+      }
+      if (typeof ts === "number") return ts < 1e12 ? ts * 1000 : ts; // sec→ms
       return null;
     }
     function getLastUpdateMs(d) {
@@ -133,7 +129,7 @@
       return normalized.length ? Math.max(...normalized) : null;
     }
 
-    /* ---------- HELPERS ---------- */
+    /* ---------- FETCH RTIRL + GEOCODE + WEATHER ---------- */
     function approxEqual(a,b,eps=1e-4){ if(a==null||b==null) return false; return Math.abs(a-b)<=eps; }
     function extractLatLon(d){
       if (d?.location && typeof d.location.latitude==="number" && typeof d.location.longitude==="number") {
@@ -144,7 +140,6 @@
       if (d?.coords && typeof d.coords.lat==="number" && typeof d.coords.lon==="number") return {lat:d.coords.lat, lon:d.coords.lon};
       return null;
     }
-
     function showUnknown() {
       stale = true;
       elLoc.textContent = "??????";
@@ -154,7 +149,46 @@
       elWxSeg.style.display = "inline-flex";
     }
 
-    /* ---------- LOCATION NAME (strip chōme/block numbers) ---------- */
+    async function fetchRTIRL() {
+      try {
+        const res = await fetch(`https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) throw new Error("RTIRL pull failed");
+        const data = await res.json();
+
+        const lastUpdate = getLastUpdateMs(data);
+        const coords = extractLatLon(data);
+        if (!coords) { showUnknown(); return; }
+
+        let tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
+
+        // Stationary grace: if unchanged and < GRACE_MS, accept as fresh
+        if (tooOld && lastLat!=null && lastLon!=null) {
+          const unchanged = approxEqual(coords.lat, lastLat) && approxEqual(coords.lon, lastLon);
+          const age = lastUpdate ? (Date.now() - lastUpdate) : Infinity;
+          if (unchanged && age < GRACE_MS) tooOld = false;
+        }
+        if (tooOld) { showUnknown(); return; }
+
+        stale = false;
+        const { lat, lon } = coords;
+
+        if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
+          reverseGeocode(lat, lon)
+            .then(name => { if (name) { lastPlace = name; elLoc.textContent = name; } })
+            .catch(() => { elLoc.textContent = lastPlace || "??????"; });
+          lastLat = lat; lastLon = lon;
+        } else {
+          elLoc.textContent = lastPlace;
+        }
+
+        updateWeather(lat, lon);
+      } catch (e) {
+        console.error(e);
+        showUnknown();
+      }
+    }
+
+    /* ---------- LOCATION: country-aware, simplified ---------- */
     async function reverseGeocode(lat, lon) {
       const url = new URL("https://nominatim.openstreetmap.org/reverse");
       url.searchParams.set("format", "jsonv2");
@@ -166,25 +200,32 @@
       if (!res.ok) throw new Error("Nominatim HTTP " + res.status);
       const j = await res.json();
       const addr = j.address || {};
+      const cc = (addr.country_code || "").toUpperCase(); // e.g., JP, US
 
       const rawArea =
         addr.neighbourhood || addr.neighborhood ||
         addr.quarter || addr.suburb || addr.district || "";
 
       const rawWard =
-        addr.city_district || addr.ward || addr.borough ||
+        addr.city_district || addr.ward || addr.borough || "";
+
+      const rawCity =
         addr.city || addr.town || addr.village || "";
+
+      const rawState =
+        addr.state || addr.province || addr.region || "";
 
       function cleanName(s) {
         if (!s) return "";
         let out = s.trim();
-        // remove "2-chome", "2 chome", "２丁目", "2丁目", trailing numbers like "Ikejiri 2"
+        // remove “2-chome”, “2 chome”, “２丁目”, “2丁目”, trailing numbers like “Ikejiri 2”
         out = out
           .replace(/\s*\d+\s*-?\s*chome\b/iu, "")
           .replace(/\s*[０-９]+\s*丁目\b/u, "")
           .replace(/\s*\d+\s*丁目\b/u, "")
           .replace(/\s+\d+([\-–]\d+)*\s*$/u, "")
           .replace(/\s+City$/i, "")
+          .replace(/^Tokyo Metropolis$/i, "Tokyo")
           .replace(/\s{2,}/g, " ")
           .trim();
         return out;
@@ -192,8 +233,43 @@
 
       const area = cleanName(rawArea);
       const ward = cleanName(rawWard);
-      const parts = [area, ward].filter(Boolean);
+      const city = cleanName(rawCity);
+      const state = cleanName(rawState);
+
+      // Left side: prefer area (neighborhood), else ward, else city
+      const left = area || ward || city || "";
+
+      // Right side: country-aware preference
+      let right = "";
+      if (cc === "JP") {
+        // Japan: prefer prefecture/metropolis (state) e.g., "Tokyo"
+        right = state || city || ward || "";
+      } else if (cc === "US") {
+        // US: if area exists -> prefer city; else city + state
+        right = area ? (city || state || "") : (city && state ? `${city}, ${state}` : (city || state || ""));
+      } else {
+        // Default: prefer city, else state
+        right = city || state || ward || "";
+      }
+
+      // If right ended up as "City, State" already, and left equals that city, keep as-is.
+      // Otherwise, if right equals left (e.g., "Shibuya, Shibuya"), drop the duplicate.
+      if (right && left && right.toLowerCase() === left.toLowerCase()) {
+        right = "";
+      }
+
+      // If right was composed as "City, State" and left equals the City, keep "left, State"
+      if (/,/.test(right)) {
+        const first = right.split(",")[0].trim();
+        if (first && left && first.toLowerCase() === left.toLowerCase()) {
+          right = right.split(",").slice(1).join(",").trim();
+        }
+      }
+
+      const parts = [left, right].filter(Boolean);
       if (parts.length) return parts.join(", ");
+
+      // Fallback: first two labels from display_name
       return (j.display_name || "").split(", ").slice(0,2).join(", ");
     }
 
@@ -210,7 +286,6 @@
         const resp = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, { cache: "no-store" });
         if (!resp.ok) throw new Error("OM HTTP " + resp.status);
         const w = await resp.json();
-
         if (w && typeof w.timezone === "string") currentTZ = w.timezone;
 
         const cw = w.current_weather;
@@ -227,17 +302,14 @@
       }
     }
 
-    /* ---------- DAY/NIGHT + LABELS ---------- */
     function isNight(tz) {
       const local = new Date(new Date().toLocaleString("en-US", { timeZone: tz || "UTC" }));
       const hour = local.getHours();
-      return (hour < 6 || hour >= 18); // 6pm–6am considered night
+      return (hour < 6 || hour >= 18); // 6pm–6am = night
     }
-
-    // Emojis: only "Clear" switches to 🌙 at night per your request
     function weatherEmoji(code){
       const night = isNight(currentTZ);
-      if (code === 0) return night ? "🌙" : "☀️"; // Clear day/night
+      if (code === 0) return night ? "🌙" : "☀️"; // Clear night/day
       if ([1,2,3].includes(code)) return "🌤️";
       if ([45,48].includes(code)) return "🌫️";
       if ([51,53,55,56,57].includes(code)) return "🌦️";
@@ -246,8 +318,6 @@
       if ([95,96,99].includes(code)) return "⛈️";
       return "☁️";
     }
-
-    // Unified, time-neutral wording
     function codeToText(code){
       const map = {
         0:"Clear",
@@ -280,48 +350,6 @@
         99:"Severe Thunderstorm"
       };
       return map[code] || "Clouds";
-    }
-
-    /* ---------- MAIN PULL ---------- */
-    async function fetchRTIRL() {
-      try {
-        const res = await fetch(`https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`, { cache: "no-store" });
-        if (!res.ok) throw new Error("RTIRL pull failed");
-        const data = await res.json();
-
-        const lastUpdate = getLastUpdateMs(data);
-        const coords = extractLatLon(data);
-
-        if (!coords) { showUnknown(); return; }
-
-        let tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
-
-        // Stationary grace if coords unchanged
-        if (tooOld && lastLat!=null && lastLon!=null) {
-          const unchanged = approxEqual(coords.lat, lastLat) && approxEqual(coords.lon, lastLon);
-          const age = lastUpdate ? (Date.now() - lastUpdate) : Infinity;
-          if (unchanged && age < GRACE_MS) tooOld = false;
-        }
-
-        if (tooOld) { showUnknown(); return; }
-
-        stale = false;
-        const { lat, lon } = coords;
-
-        if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
-          reverseGeocode(lat, lon)
-            .then(name => { if (name) { lastPlace = name; elLoc.textContent = name; } })
-            .catch(() => { elLoc.textContent = lastPlace || "??????"; });
-          lastLat = lat; lastLon = lon;
-        } else {
-          elLoc.textContent = lastPlace;
-        }
-
-        updateWeather(lat, lon);
-      } catch (e) {
-        console.error(e);
-        showUnknown();
-      }
     }
 
     // initial + every 30s
