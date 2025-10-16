@@ -252,13 +252,11 @@
         right = city || state || ward || "";
       }
 
-      // If right ended up as "City, State" already, and left equals that city, keep as-is.
-      // Otherwise, if right equals left (e.g., "Shibuya, Shibuya"), drop the duplicate.
+      // Drop duplicate like "Shibuya, Shibuya"
       if (right && left && right.toLowerCase() === left.toLowerCase()) {
         right = "";
       }
-
-      // If right was composed as "City, State" and left equals the City, keep "left, State"
+      // If right is "City, State" and left equals City, keep "left, State"
       if (/,/.test(right)) {
         const first = right.split(",")[0].trim();
         if (first && left && first.toLowerCase() === left.toLowerCase()) {
@@ -307,17 +305,23 @@
       const hour = local.getHours();
       return (hour < 6 || hour >= 18); // 6pm–6am = night
     }
+
+    // No sun icons at night. Drizzle -> ☔.
     function weatherEmoji(code){
       const night = isNight(currentTZ);
-      if (code === 0) return night ? "🌙" : "☀️"; // Clear night/day
-      if ([1,2,3].includes(code)) return "🌤️";
-      if ([45,48].includes(code)) return "🌫️";
-      if ([51,53,55,56,57].includes(code)) return "🌦️";
-      if ([61,63,65,66,67,80,81,82].includes(code)) return "🌧️";
-      if ([71,73,75,77,85,86].includes(code)) return "❄️";
-      if ([95,96,99].includes(code)) return "⛈️";
+      if (code === 0) return night ? "🌙" : "☀️";        // Clear
+      if (code === 1) return night ? "🌙" : "🌤️";        // Mostly Clear
+      if (code === 2) return night ? "☁️" : "🌤️";        // Partly Cloudy (no sun at night)
+      if (code === 3) return "☁️";                       // Cloudy
+      if ([45,48].includes(code)) return "🌫️";           // Fog
+      if ([51,53,55,56,57].includes(code)) return "☔";   // Drizzle (incl. freezing drizzle)
+      if ([61,63,65,66,67,80,81,82].includes(code)) return "🌧️"; // Rain/Showers
+      if ([71,73,75,77,85,86].includes(code)) return "❄️";       // Snow
+      if ([95,96,99].includes(code)) return "⛈️";         // Thunderstorm
       return "☁️";
     }
+
+    // Unified, time-neutral wording
     function codeToText(code){
       const map = {
         0:"Clear",
