@@ -9,7 +9,7 @@
     /* Self-hosted Arial Bold */
     @font-face {
       font-family: "OverlayArialBold";
-      src: url("./fonts/ARIALBD.woff2?v=12") format("woff2");
+      src: url("./fonts/ARIALBD.woff2?v=13") format("woff2");
       font-weight: 700;
       font-style: normal;
       font-display: block;
@@ -18,7 +18,7 @@
     /* Self-hosted Apple Emoji subset */
     @font-face {
       font-family: "OverlayAppleEmoji";
-      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=12") format("woff2");
+      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=13") format("woff2");
       font-weight: 400;
       font-style: normal;
       font-display: swap;
@@ -35,12 +35,15 @@
       --font: "OverlayArialBold", Arial, Helvetica, sans-serif;
     }
 
+    /* Force Arial Bold everywhere for text */
     html, body, #overlay, .segment, .sep, span, div, * {
       font-family: var(--font) !important;
       font-synthesis: none;
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
     }
+
+    /* Emoji spans use color emoji font */
     .emoji {
       font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
       font-synthesis: none;
@@ -55,6 +58,7 @@
       font-size: 16px;
       line-height: 1.2;
     }
+
     .pill {
       display: inline-flex;
       align-items: center;
@@ -85,11 +89,13 @@
 
   <script>
     const PULL_KEY = "1wjousu7l61hzgws";
-    const TEMP_UNITS = "f";
-    const STALE_MS = Infinity;
-    const GRACE_MS = Infinity;
+    const TEMP_UNITS = "f";   // "f" or "c"
 
-    let lastLat=null, lastLon=null, lastPlace=null, currentTZ=null, stale=false;
+    let lastLat = null;
+    let lastLon = null;
+    let lastPlace = null;
+    let currentTZ = null;
+    let rtirlOffline = false; // only true when RTIRL actually off / no coords / fetch error
 
     const elLoc = document.getElementById("loc");
     const elTime = document.getElementById("time");
@@ -108,30 +114,21 @@
       h = h % 12; if (h === 0) h = 12;
       return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
     }
+
     function tickClock() {
-      elTime.textContent = stale ? "??????" : to12h(new Date(), currentTZ);
-    }
-    setInterval(tickClock, 1000); tickClock();
-
-    /* ---------- TIMESTAMP HELPERS ---------- */
-    function normalizeTs(ts) {
-      if (ts == null) return null;
-      if (typeof ts === "string") {
-        const d = Date.parse(ts); return Number.isNaN(d) ? null : d;
+      if (rtirlOffline) {
+        elTime.textContent = "??????";
+      } else {
+        elTime.textContent = to12h(new Date(), currentTZ);
       }
-      if (typeof ts === "number") return ts < 1e12 ? ts * 1000 : ts;
-      return null;
-    }
-    function getLastUpdateMs(d) {
-      const normalized = [
-        d?.updatedAt, d?.reportedAt, d?.timestamp,
-        d?.location?.updatedAt, d?.location?.reportedAt
-      ].map(normalizeTs).filter(v => typeof v === "number" && !Number.isNaN(v));
-      return normalized.length ? Math.max(...normalized) : null;
     }
 
-    /* ---------- FETCH RTIRL + GEOCODE + WEATHER ---------- */
+    setInterval(tickClock, 1000);
+    tickClock();
+
+    /* ---------- SIMPLE COORD EXTRACT ---------- */
     function approxEqual(a,b,eps=1e-4){ if(a==null||b==null) return false; return Math.abs(a-b)<=eps; }
+
     function extractLatLon(d){
       if (d?.location && typeof d.location.latitude==="number" && typeof d.location.longitude==="number")
         return {lat:d.location.latitude, lon:d.location.longitude};
@@ -140,8 +137,9 @@
       if (d?.coords && typeof d.coords.lat==="number" && typeof d.coords.lon==="number") return {lat:d.coords.lat, lon:d.coords.lon};
       return null;
     }
+
     function showUnknown() {
-      stale = true;
+      rtirlOffline = true;
       elLoc.textContent = "??????";
       elTime.textContent = "??????";
       elWeather.textContent = "??????";
@@ -149,37 +147,50 @@
       elWxSeg.style.display = "inline-flex";
     }
 
+    /* ---------- RTIRL FETCH ---------- */
     async function fetchRTIRL() {
       try {
-        const res = await fetch(`https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`, { cache: "no-store" });
+        const res = await fetch(
+          `https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`,
+          { cache: "no-store" }
+        );
         if (!res.ok) throw new Error("RTIRL pull failed");
-        const data = await res.json();
 
-        const lastUpdate = getLastUpdateMs(data);
+        const data = await res.json();
         const coords = extractLatLon(data);
+
+        // If RTIRL is on, we MUST have coords. Otherwise we treat as off.
         if (!coords) { showUnknown(); return; }
 
-        let tooOld = !lastUpdate || (Date.now() - lastUpdate > STALE_MS);
-        if (tooOld && lastLat!=null && lastLon!=null) {
-          const unchanged = approxEqual(coords.lat, lastLat) && approxEqual(coords.lon, lastLon);
-          const age = lastUpdate ? (Date.now() - lastUpdate) : Infinity;
-          if (unchanged && age < GRACE_MS) tooOld = false;
-        }
-        if (tooOld) { showUnknown(); return; }
+        // RTIRL is clearly on and returning data.
+        rtirlOffline = false;
+        tickClock(); // immediately show correct time again
 
-        stale = false;
         const { lat, lon } = coords;
 
+        // Only reverse geocode when coords change significantly
         if (!lastPlace || !approxEqual(lat,lastLat) || !approxEqual(lon,lastLon)) {
           reverseGeocode(lat, lon)
-            .then(name => { if (name) { lastPlace = name; elLoc.textContent = name; } })
-            .catch(() => { elLoc.textContent = lastPlace || "??????"; });
-          lastLat = lat; lastLon = lon;
+            .then(name => {
+              if (name) {
+                lastPlace = name;
+                elLoc.textContent = name;
+              }
+            })
+            .catch(() => {
+              elLoc.textContent = lastPlace || "??????";
+            });
+
+          lastLat = lat;
+          lastLon = lon;
         } else {
+          // Use cached place name
           elLoc.textContent = lastPlace;
         }
 
+        // Weather uses same coords
         updateWeather(lat, lon);
+
       } catch (e) {
         console.error(e);
         showUnknown();
@@ -208,7 +219,7 @@
       const city = clean(addr.city || addr.town || addr.village || addr.hamlet || "");
       const state = clean(addr.state || addr.province || addr.region || addr.county || "");
 
-      // US → City, StateAbbrev
+      // US → "Los Angeles, CA"
       if (cc === "US" && city && state) {
         const abbrev = {
           "California": "CA", "New York": "NY", "Texas": "TX", "Florida": "FL",
@@ -219,14 +230,14 @@
         return `${city}, ${abbrev}`;
       }
 
-      // Japan → City/Ward, Prefecture
+      // Japan → "Shibuya, Tokyo"
       if (cc === "JP") {
         const cityJP = addr.city || addr.town || addr.village || addr.ward || "";
         const stateJP = addr.state || "";
         if (cityJP && stateJP) return `${cityJP}, ${stateJP}`;
       }
 
-      // Default
+      // Default: area/city + state
       const area = addr.neighbourhood || addr.neighborhood || addr.suburb || addr.district || "";
       const left = area || city;
       const right = state;
@@ -247,10 +258,17 @@
         const resp = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, { cache: "no-store" });
         if (!resp.ok) throw new Error("OM HTTP " + resp.status);
         const w = await resp.json();
+
         if (w && typeof w.timezone === "string") currentTZ = w.timezone;
 
         const cw = w.current_weather;
-        if (!cw) { elWxEmoji.textContent = "🌀"; elWeather.textContent = "??????"; elWxSeg.style.display = "inline-flex"; return; }
+        if (!cw) {
+          // Weather unknown, but RTIRL may still be on → only weather goes ????.
+          elWxEmoji.textContent = "🌀";
+          elWeather.textContent = "??????";
+          elWxSeg.style.display = "inline-flex";
+          return;
+        }
 
         const temp = Math.round(cw.temperature);
         const code = Number(cw.weathercode);
@@ -259,7 +277,10 @@
         elWxSeg.style.display = "inline-flex";
       } catch (e) {
         console.warn("weather fail", e);
-        elWxEmoji.textContent = "🌀"; elWeather.textContent = "??????"; elWxSeg.style.display = "inline-flex";
+        // Weather service down → show unknown weather only.
+        elWxEmoji.textContent = "🌀";
+        elWeather.textContent = "??????";
+        elWxSeg.style.display = "inline-flex";
       }
     }
 
@@ -269,18 +290,19 @@
       return (hour < 6 || hour >= 18);
     }
 
+    // No sun at night; drizzle = ☔
     function weatherEmoji(code){
       const night = isNight(currentTZ);
-      if (code === 0) return night ? "🌙" : "☀️";
-      if (code === 1) return night ? "🌙" : "🌤️";
-      if (code === 2) return night ? "☁️" : "🌤️";
-      if (code === 3) return "☁️";
-      if ([45,48].includes(code)) return "🌫️";
-      if ([51,53,55,56,57].includes(code)) return "☔";
-      if ([61,63,65,66,67,80,81,82].includes(code)) return "🌧️";
-      if ([71,73,75,77,85,86].includes(code)) return "❄️";
-      if ([95,96,99].includes(code)) return "⛈️";
-      return "☁️";
+      if (code === 0) return night ? "🌙" : "☀️";          // Clear
+      if (code === 1) return night ? "🌙" : "🌤️";          // Mostly Clear
+      if (code === 2) return night ? "☁️" : "🌤️";          // Partly Cloudy
+      if (code === 3) return "☁️";                         // Cloudy
+      if ([45,48].includes(code)) return "🌫️";             // Fog
+      if ([51,53,55,56,57].includes(code)) return "☔";     // Drizzle
+      if ([61,63,65,66,67,80,81,82].includes(code)) return "🌧️"; // Rain
+      if ([71,73,75,77,85,86].includes(code)) return "❄️";       // Snow
+      if ([95,96,99].includes(code)) return "⛈️";           // Thunder
+      return "☁️";                                         // Fallback
     }
 
     function codeToText(code){
@@ -299,6 +321,7 @@
       return map[code] || "Clouds";
     }
 
+    // Initial + every 30 seconds
     fetchRTIRL();
     setInterval(fetchRTIRL, 30000);
   </script>
