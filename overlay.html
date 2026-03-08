@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stream Overlay</title>
+
+  <style>
+    @font-face {
+      font-family: "OverlayArialBold";
+      src: url("./fonts/ARIALBD.woff2?v=13") format("woff2");
+      font-weight: 700;
+      font-style: normal;
+      font-display: block;
+    }
+
+    @font-face {
+      font-family: "OverlayAppleEmoji";
+      src: url("./fonts/AppleColorEmoji-rtirl.woff2?v=13") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    :root {
+      --bg: rgba(0,0,0,0.6);
+      --fg: #ffffff;
+      --border: rgba(255,255,255,0.4);
+      --radius: 8px;
+      --padY: 4px;
+      --padX: 10px;
+      --gap: 8px;
+      --font: "OverlayArialBold", Arial, Helvetica, sans-serif;
+    }
+
+    * {
+      font-family: var(--font) !important;
+      font-synthesis: none;
+      -webkit-text-size-adjust: 100%;
+      text-rendering: optimizeLegibility;
+    }
+
+    .emoji {
+      font-family: "OverlayAppleEmoji","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif !important;
+      font-synthesis: none;
+      line-height: 1;
+      display: inline-block;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+    }
+
+    body {
+      display: inline-block;
+      color: var(--fg);
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--gap);
+      padding: var(--padY) var(--padX);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      box-sizing: border-box;
+      white-space: nowrap;
+      box-shadow: 0 0 3px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.25);
+      font-weight: 700;
+    }
+
+    .segment {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sep {
+      color: var(--border);
+      font-weight: 400;
+      font-size: 0.85em;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="overlay" class="pill">
+    <span id="locSeg" class="segment">
+      <span class="emoji">📍</span>
+      <span id="loc">Locating…</span>
+    </span>
+    <span class="sep">|</span>
+    <span id="timeSeg" class="segment">
+      <span class="emoji">🕒</span>
+      <span id="time">--:-- --</span>
+    </span>
+    <span class="sep">|</span>
+    <span id="wxSeg" class="segment" style="display:none">
+      <span id="wxEmoji" class="emoji">☁️</span>
+      <span id="weather">--</span>
+    </span>
+  </div>
+
+  <script>
+    // ─── Config ───────────────────────────────────────────────────────────────
+    const PULL_KEY      = "1wjousu7l61hzgws";
+    const TEMP_UNITS    = "f";          // "f" or "c"
+    const POLL_INTERVAL = 30_000;       // ms between RTIRL fetches
+    const COORD_EPS     = 1e-5;         // ~1 m; coords closer than this skip re-fetch
+    const GEOCODE_ZOOM  = 15;
+    const UNKNOWN       = "??????";
+
+    // ─── State ────────────────────────────────────────────────────────────────
+    let lastLat       = null;
+    let lastLon       = null;
+    let lastPlace     = null;
+    let currentTZ     = null;
+    let rtirlOffline  = false;
+    let lastWxCode    = null;
+    let lastWxTemp    = null;
+
+    // ─── DOM refs ─────────────────────────────────────────────────────────────
+    const elLoc     = document.getElementById("loc");
+    const elTime    = document.getElementById("time");
+    const elWxSeg   = document.getElementById("wxSeg");
+    const elWeather = document.getElementById("weather");
+    const elWxEmoji = document.getElementById("wxEmoji");
+
+    // ─── Clock ────────────────────────────────────────────────────────────────
+    function formatTime(tz) {
+      const resolved = tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: resolved,
+        hour:   "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }).formatToParts(new Date());
+
+      const get = type => parts.find(p => p.type === type)?.value ?? "";
+      return `${get("hour")}:${get("minute")} ${get("dayperiod").toLowerCase()}`;
+    }
+
+    function tickClock() {
+      elTime.textContent = rtirlOffline ? UNKNOWN : formatTime(currentTZ);
+    }
+
+    setInterval(tickClock, 1000);
+    tickClock();
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+    function approxEqual(a, b, eps = COORD_EPS) {
+      return a != null && b != null && Math.abs(a - b) <= eps;
+    }
+
+    function coordsChanged(lat, lon) {
+      return !approxEqual(lat, lastLat) || !approxEqual(lon, lastLon);
+    }
+
+    function extractLatLon(data) {
+      if (data?.location?.latitude  != null) return { lat: data.location.latitude,  lon: data.location.longitude };
+      if (data?.lat                 != null) return { lat: data.lat,                 lon: data.lon };
+      if (data?.latitude            != null) return { lat: data.latitude,            lon: data.longitude };
+      if (data?.coords?.lat         != null) return { lat: data.coords.lat,          lon: data.coords.lon };
+      return null;
+    }
+
+    function showUnknown() {
+      rtirlOffline = true;
+      elLoc.textContent     = UNKNOWN;
+      elTime.textContent    = UNKNOWN;
+      elWxEmoji.textContent = "🌀";
+      elWeather.textContent = UNKNOWN;
+      elWxSeg.style.display = "inline-flex";
+    }
+
+    function isNight(tz) {
+      const resolved = tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const hour = new Intl.DateTimeFormat("en-US", {
+        timeZone: resolved,
+        hour: "numeric",
+        hour12: false,
+      }).format(new Date());
+      return hour < 6 || hour >= 18;
+    }
+
+    // ─── RTIRL ────────────────────────────────────────────────────────────────
+    async function fetchRTIRL() {
+      try {
+        const res = await fetch(
+          `https://rtirl.com/api/pull?key=${encodeURIComponent(PULL_KEY)}&ts=${Date.now()}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error(`RTIRL pull failed: ${res.status}`);
+
+        const data   = await res.json();
+        const coords = extractLatLon(data);
+
+        if (!coords) { showUnknown(); return; }
+
+        rtirlOffline = false;
+        tickClock();
+
+        const { lat, lon } = coords;
+        const moved = coordsChanged(lat, lon);
+
+        if (moved) {
+          lastLat = lat;
+          lastLon = lon;
+
+          reverseGeocode(lat, lon)
+            .then(name => {
+              if (name) { lastPlace = name; }
+              elLoc.textContent = lastPlace || UNKNOWN;
+            })
+            .catch(() => {
+              elLoc.textContent = lastPlace || UNKNOWN;
+            });
+
+          updateWeather(lat, lon);
+        } else {
+          elLoc.textContent = lastPlace || UNKNOWN;
+        }
+
+      } catch (err) {
+        console.error("RTIRL fetch error:", err);
+        showUnknown();
+      }
+    }
+
+    // ─── Reverse geocode ──────────────────────────────────────────────────────
+    async function reverseGeocode(lat, lon) {
+      const url = new URL("https://nominatim.openstreetmap.org/reverse");
+      url.searchParams.set("format",          "jsonv2");
+      url.searchParams.set("lat",             String(lat));
+      url.searchParams.set("lon",             String(lon));
+      url.searchParams.set("accept-language", "en");
+      url.searchParams.set("zoom",            String(GEOCODE_ZOOM));
+
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
+
+      const j    = await res.json();
+      const addr = j.address || {};
+      const cc   = (addr.country_code || "").toUpperCase();
+
+      const clean = s => (s || "")
+        .replace(/\s+City$/i,   "")
+        .replace(/\s+County$/i, "")
+        .trim();
+
+      const city  = clean(addr.city || addr.town || addr.village || addr.hamlet || "");
+      const state = clean(addr.state || addr.province || addr.region || addr.county || "");
+
+      // US → "Los Angeles, CA"
+      if (cc === "US" && city && state) {
+        const STATE_ABBREVS = {
+          "California": "CA", "New York": "NY", "Texas": "TX",  "Florida": "FL",
+          "Washington": "WA", "Oregon":   "OR", "Nevada": "NV", "Arizona": "AZ",
+          "Illinois":   "IL", "Massachusetts": "MA", "Hawaii": "HI", "Colorado": "CO",
+          "Georgia":    "GA", "Virginia": "VA", "Pennsylvania": "PA", "Ohio": "OH",
+        };
+        return `${city}, ${STATE_ABBREVS[state] || state}`;
+      }
+
+      // Japan → "Shibuya, Tokyo"
+      if (cc === "JP") {
+        const cityJP  = addr.city || addr.town || addr.village || addr.ward  || "";
+        const stateJP = addr.state || "";
+        if (cityJP && stateJP) return `${cityJP}, ${stateJP}`;
+      }
+
+      // Default: neighbourhood/suburb + state
+      const area  = addr.neighbourhood || addr.neighborhood || addr.suburb || addr.district || "";
+      const parts = [area || city, state].filter(Boolean);
+      return parts.length
+        ? parts.join(", ")
+        : (j.display_name || "").split(", ").slice(0, 2).join(", ");
+    }
+
+    // ─── Weather ──────────────────────────────────────────────────────────────
+    async function updateWeather(lat, lon) {
+      try {
+        const params = new URLSearchParams({
+          latitude:         lat,
+          longitude:        lon,
+          current_weather:  "true",
+          temperature_unit: TEMP_UNITS === "f" ? "fahrenheit" : "celsius",
+          windspeed_unit:   "mph",
+          timezone:         "auto",
+        });
+
+        const res = await fetch(
+          `https://api.open-meteo.com/v1/forecast?${params}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
+
+        const data = await res.json();
+        if (data?.timezone) currentTZ = data.timezone;
+
+        const cw = data?.current_weather;
+        if (!cw) throw new Error("No current_weather in response");
+
+        const temp = Math.round(cw.temperature);
+        const code = Number(cw.weathercode);
+
+        // Skip re-render if nothing changed
+        if (temp === lastWxTemp && code === lastWxCode) return;
+        lastWxTemp = temp;
+        lastWxCode = code;
+
+        elWxEmoji.textContent = weatherEmoji(code);
+        elWeather.textContent = `${temp}${TEMP_UNITS === "f" ? "°F" : "°C"} ${codeToText(code)}`;
+        elWxSeg.style.display = "inline-flex";
+
+      } catch (err) {
+        console.warn("Weather fetch error:", err);
+        elWxEmoji.textContent = "🌀";
+        elWeather.textContent = UNKNOWN;
+        elWxSeg.style.display = "inline-flex";
+      }
+    }
+
+    function weatherEmoji(code) {
+      const night = isNight(currentTZ);
+      if (code === 0)                                        return night ? "🌙" : "☀️";
+      if (code === 1)                                        return night ? "🌙" : "🌤️";
+      if (code === 2)                                        return night ? "☁️" : "🌤️";
+      if (code === 3)                                        return "☁️";
+      if ([45, 48].includes(code))                           return "🌫️";
+      if ([51, 53, 55, 56, 57].includes(code))              return "☔";
+      if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "🌧️";
+      if ([71, 73, 75, 77, 85, 86].includes(code))          return "❄️";
+      if ([95, 96, 99].includes(code))                      return "⛈️";
+      return "☁️";
+    }
+
+    const WEATHER_TEXT = {
+      0: "Clear",          1: "Mostly Clear",     2: "Partly Cloudy",  3: "Cloudy",
+      45: "Foggy",         48: "Icy Fog",
+      51: "Light Drizzle", 53: "Drizzle",          55: "Heavy Drizzle",
+      56: "Freezing Drizzle",                       57: "Heavy Freezing Drizzle",
+      61: "Light Rain",    63: "Rain",              65: "Heavy Rain",
+      66: "Freezing Rain",                          67: "Heavy Freezing Rain",
+      71: "Light Snow",    73: "Snow",              75: "Heavy Snow",
+      77: "Snow Grains",   80: "Showers",           81: "Heavy Showers",  82: "Violent Showers",
+      85: "Snow Showers",  86: "Heavy Snow Showers",
+      95: "Thunderstorm",  96: "Thunderstorm With Hail",  99: "Severe Thunderstorm",
+    };
+
+    function codeToText(code) {
+      return WEATHER_TEXT[code] || "Clouds";
+    }
+
+    // ─── Init ─────────────────────────────────────────────────────────────────
+    fetchRTIRL();
+    setInterval(fetchRTIRL, POLL_INTERVAL);
+  </script>
+</body>
+</html>
